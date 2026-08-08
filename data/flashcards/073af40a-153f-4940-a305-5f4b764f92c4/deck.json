@@ -1,0 +1,474 @@
+{
+    "id": "073af40a-153f-4940-a305-5f4b764f92c4",
+    "name": "Sample Deck",
+    "cards": [
+        {
+            "id": "a1b2",
+            "front": "What is the capital of France?",
+            "back": "Paris",
+            "hint": "City of Lights",
+            "description": "Paris is the capital and most populous city of France.",
+            "image": "data/flashcards/073af40a-153f-4940-a305-5f4b764f92c4/media/city_of_lights.jpg",
+            "audio": ""
+        },
+        {
+            "id": "0001",
+            "front": "What is the capital of France?",
+            "back": "Paris",
+            "hint": "City of Lights",
+            "description": "Paris is the capital city of France.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0002",
+            "front": "What is the capital of Germany?",
+            "back": "Berlin",
+            "hint": "Largest German city",
+            "description": "Berlin is the capital of Germany.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0003",
+            "front": "What is the capital of Italy?",
+            "back": "Rome",
+            "hint": "Ancient empire",
+            "description": "Rome is the capital of Italy.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0004",
+            "front": "What is the capital of Spain?",
+            "back": "Madrid",
+            "hint": "Home of Real Madrid",
+            "description": "Madrid is Spain's capital.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0005",
+            "front": "What is the capital of Canada?",
+            "back": "Ottawa",
+            "hint": "Not Toronto",
+            "description": "Ottawa is Canada's capital.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0006",
+            "front": "What is 5 \u00d7 6?",
+            "back": "30",
+            "hint": "Five groups of six",
+            "description": "Basic multiplication.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0007",
+            "front": "What is 12 \u00f7 3?",
+            "back": "4",
+            "hint": "Equal groups",
+            "description": "Basic division.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0008",
+            "front": "What is 15 + 27?",
+            "back": "42",
+            "hint": "The Answer to Life",
+            "description": "Basic addition.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0009",
+            "front": "What is 100 \u2212 35?",
+            "back": "65",
+            "hint": "Subtract thirty-five",
+            "description": "Basic subtraction.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0010",
+            "front": "Square root of 81?",
+            "back": "9",
+            "hint": "Single digit",
+            "description": "81 = 9\u00b2.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0011",
+            "front": "Largest planet?",
+            "back": "Jupiter",
+            "hint": "Gas giant",
+            "description": "Jupiter is the largest planet.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0012",
+            "front": "Closest star to Earth?",
+            "back": "Sun",
+            "hint": "Provides daylight",
+            "description": "The Sun is Earth's nearest star.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0013",
+            "front": "Planet known as the Red Planet?",
+            "back": "Mars",
+            "hint": "Named after Roman god",
+            "description": "Mars appears red due to iron oxide.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0014",
+            "front": "Natural satellite of Earth?",
+            "back": "Moon",
+            "hint": "Visible at night",
+            "description": "Earth has one natural satellite.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0015",
+            "front": "Largest ocean?",
+            "back": "Pacific Ocean",
+            "hint": "Between Asia and Americas",
+            "description": "The Pacific is Earth's largest ocean.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0016",
+            "front": "Chemical symbol for water?",
+            "back": "H2O",
+            "hint": "Two hydrogen atoms",
+            "description": "Water consists of hydrogen and oxygen.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0017",
+            "front": "Chemical symbol for gold?",
+            "back": "Au",
+            "hint": "Starts with A",
+            "description": "Au comes from Latin 'Aurum'.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0018",
+            "front": "Chemical symbol for sodium?",
+            "back": "Na",
+            "hint": "From Latin",
+            "description": "Na comes from Natrium.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0019",
+            "front": "Chemical symbol for oxygen?",
+            "back": "O",
+            "hint": "Single letter",
+            "description": "Oxygen's symbol is O.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0020",
+            "front": "Chemical symbol for iron?",
+            "back": "Fe",
+            "hint": "Latin Ferrum",
+            "description": "Iron's chemical symbol is Fe.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0021",
+            "front": "Fastest land animal?",
+            "back": "Cheetah",
+            "hint": "Spotted cat",
+            "description": "The cheetah reaches over 100 km/h.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0022",
+            "front": "Largest mammal?",
+            "back": "Blue Whale",
+            "hint": "Ocean giant",
+            "description": "The blue whale is the largest known animal.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0023",
+            "front": "King of the Jungle?",
+            "back": "Lion",
+            "hint": "Big cat",
+            "description": "A common nickname for lions.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0024",
+            "front": "Tallest animal?",
+            "back": "Giraffe",
+            "hint": "Long neck",
+            "description": "Giraffes are the tallest animals.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0025",
+            "front": "Bird that cannot fly?",
+            "back": "Penguin",
+            "hint": "Lives in Antarctica",
+            "description": "Penguins are flightless birds.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0026",
+            "front": "Python keyword for defining a function?",
+            "back": "def",
+            "hint": "Three letters",
+            "description": "Functions begin with 'def'.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0027",
+            "front": "Keyword to create a loop over a sequence?",
+            "back": "for",
+            "hint": "Very common loop",
+            "description": "The for loop iterates over items.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0028",
+            "front": "Python file extension?",
+            "back": ".py",
+            "hint": "Two letters",
+            "description": "Python source files end with .py.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0029",
+            "front": "Result of len('Python')?",
+            "back": "6",
+            "hint": "Count letters",
+            "description": "Python has six letters.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0030",
+            "front": "Boolean values in Python?",
+            "back": "True and False",
+            "hint": "Logical values",
+            "description": "Python has two Boolean constants.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0031",
+            "front": "Linux command to print current directory?",
+            "back": "pwd",
+            "hint": "Print Working Directory",
+            "description": "pwd displays the current directory.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0032",
+            "front": "Linux command to list files?",
+            "back": "ls",
+            "hint": "Two letters",
+            "description": "ls lists directory contents.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0033",
+            "front": "Linux command to copy files?",
+            "back": "cp",
+            "hint": "Starts with c",
+            "description": "cp copies files and directories.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0034",
+            "front": "Linux command to move files?",
+            "back": "mv",
+            "hint": "Also renames",
+            "description": "mv moves or renames files.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0035",
+            "front": "Linux command to remove files?",
+            "back": "rm",
+            "hint": "Delete",
+            "description": "rm removes files.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0036",
+            "front": "Primary color: Red + Blue?",
+            "back": "Purple",
+            "hint": "Royal color",
+            "description": "Red and blue make purple.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0037",
+            "front": "Primary color: Blue + Yellow?",
+            "back": "Green",
+            "hint": "Nature",
+            "description": "Blue and yellow create green.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0038",
+            "front": "Primary color: Red + Yellow?",
+            "back": "Orange",
+            "hint": "Fruit color",
+            "description": "Red and yellow create orange.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0039",
+            "front": "How many days are in a leap year?",
+            "back": "366",
+            "hint": "One extra day",
+            "description": "Leap years contain 366 days.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0040",
+            "front": "How many continents are there?",
+            "back": "7",
+            "hint": "More than six",
+            "description": "There are seven continents.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0041",
+            "front": "Largest desert in the world?",
+            "back": "Antarctica",
+            "hint": "Not Sahara",
+            "description": "Antarctica is the largest desert by definition.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0042",
+            "front": "Smallest prime number?",
+            "back": "2",
+            "hint": "Even number",
+            "description": "2 is the only even prime.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0043",
+            "front": "How many hours are in one day?",
+            "back": "24",
+            "hint": "Two dozen",
+            "description": "A day has 24 hours.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0044",
+            "front": "How many minutes are in one hour?",
+            "back": "60",
+            "hint": "Five dozen",
+            "description": "One hour contains 60 minutes.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0045",
+            "front": "What gas do humans breathe in?",
+            "back": "Oxygen",
+            "hint": "21% of air",
+            "description": "Humans require oxygen for respiration.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0046",
+            "front": "Fastest bird?",
+            "back": "Peregrine Falcon",
+            "hint": "Diving hunter",
+            "description": "The peregrine falcon is the fastest bird.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0047",
+            "front": "Largest continent?",
+            "back": "Asia",
+            "hint": "Contains China",
+            "description": "Asia is the largest continent.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0048",
+            "front": "Programming language created by Guido van Rossum?",
+            "back": "Python",
+            "hint": "Popular scripting language",
+            "description": "Python was first released in 1991.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0049",
+            "front": "Device that stores temporary data while CPU works?",
+            "back": "RAM",
+            "hint": "Volatile memory",
+            "description": "Random Access Memory stores temporary data.",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "id": "0050",
+            "front": "Binary value after decimal 1?",
+            "back": "10",
+            "hint": "Base 2",
+            "description": "Decimal 2 equals binary 10.",
+            "image": "",
+            "audio": ""
+        }
+    ],
+    "moderation": {
+        "owner_id": "legacy",
+        "status": "published",
+        "visibility": "public",
+        "allowed_user_ids": [],
+        "reviewed_by": "1",
+        "reviewed_at": "2026-08-07T13:41:26.742426+00:00",
+        "review_note": "asd"
+    }
+}

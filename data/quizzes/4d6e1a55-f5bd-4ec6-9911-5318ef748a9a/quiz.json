@@ -1,0 +1,1292 @@
+{
+    "id": "4d6e1a55-f5bd-4ec6-9911-5318ef748a9a",
+    "name": "General Quiz",
+    "questions": [
+        {
+            "question": "Which planet has the most moons?",
+            "type": "single_choice",
+            "choices": [
+                "Mars",
+                "Jupiter",
+                "Earth",
+                "Saturn"
+            ],
+            "answer": "Saturn",
+            "has_image": false,
+            "image_path": "",
+            "id": "fba875bc"
+        },
+        {
+            "question": "What is the capital of Canada?",
+            "type": "single_choice",
+            "choices": [
+                "Toronto",
+                "Ottawa",
+                "Vancouver",
+                "Montreal"
+            ],
+            "answer": "Ottawa",
+            "has_image": false,
+            "image_path": "",
+            "id": "5d0ce10d"
+        },
+        {
+            "question": "Which organ pumps blood through the body?",
+            "type": "single_choice",
+            "choices": [
+                "Liver",
+                "Brain",
+                "Heart",
+                "Lungs"
+            ],
+            "answer": "Heart",
+            "has_image": true,
+            "image_path": "data/quizzes/4d6e1a55-f5bd-4ec6-9911-5318ef748a9a/media/Which_organ_pumps_blood.png",
+            "id": "0116a8da"
+        },
+        {
+            "question": "What is the largest desert in the world?",
+            "type": "single_choice",
+            "choices": [
+                "Gobi",
+                "Sahara",
+                "Arctic",
+                "Kalahari"
+            ],
+            "answer": "Sahara",
+            "has_image": false,
+            "image_path": "",
+            "id": "667a623f"
+        },
+        {
+            "question": "Who painted Starry Night?",
+            "type": "single_choice",
+            "choices": [
+                "Da Vinci",
+                "Van Gogh",
+                "Rembrandt",
+                "Picasso"
+            ],
+            "answer": "Van Gogh",
+            "has_image": false,
+            "image_path": "",
+            "id": "52230543"
+        },
+        {
+            "question": "Which element has the symbol O?",
+            "type": "single_choice",
+            "choices": [
+                "Oxygen",
+                "Gold",
+                "Osmium",
+                "Opium"
+            ],
+            "answer": "Oxygen",
+            "has_image": false,
+            "image_path": "",
+            "id": "c6b673f2"
+        },
+        {
+            "question": "What gas do humans exhale?",
+            "type": "single_choice",
+            "choices": [
+                "Nitrogen",
+                "Oxygen",
+                "Carbon dioxide",
+                "Helium"
+            ],
+            "answer": "Carbon dioxide",
+            "has_image": false,
+            "image_path": "",
+            "id": "a511d86f"
+        },
+        {
+            "question": "Which country hosted the 2016 Summer Olympics?",
+            "type": "single_choice",
+            "choices": [
+                "China",
+                "UK",
+                "Brazil",
+                "Japan"
+            ],
+            "answer": "Brazil",
+            "has_image": false,
+            "image_path": "",
+            "id": "807883d6"
+        },
+        {
+            "question": "What is the smallest prime number?",
+            "type": "single_choice",
+            "choices": [
+                "0",
+                "1",
+                "2",
+                "3"
+            ],
+            "answer": "2",
+            "has_image": false,
+            "image_path": "",
+            "id": "ee80492d"
+        },
+        {
+            "question": "Which animal is known as the King of the Jungle?",
+            "type": "single_choice",
+            "choices": [
+                "Tiger",
+                "Lion",
+                "Elephant",
+                "Bear"
+            ],
+            "answer": "Lion",
+            "has_image": false,
+            "image_path": "",
+            "id": "72a53efc"
+        },
+        {
+            "question": "Select all fruits:",
+            "type": "multiple_choice",
+            "choices": [
+                "Apple",
+                "Carrot",
+                "Banana",
+                "Potato"
+            ],
+            "answer": [
+                "Apple",
+                "Banana"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "4f7afa52"
+        },
+        {
+            "question": "Which languages are programming languages?",
+            "type": "multiple_choice",
+            "choices": [
+                "Ruby",
+                "German",
+                "Python",
+                "Spanish"
+            ],
+            "answer": [
+                "Ruby",
+                "Python"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "cd7ca1ec"
+        },
+        {
+            "question": "Which are renewable energy sources?",
+            "type": "multiple_choice",
+            "choices": [
+                "Solar",
+                "Wind",
+                "Coal",
+                "Oil"
+            ],
+            "answer": [
+                "Solar",
+                "Wind"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "e388b0c8"
+        },
+        {
+            "question": "Select the oceans:",
+            "type": "multiple_choice",
+            "choices": [
+                "Atlantic",
+                "Baltic",
+                "Indian",
+                "Caspian"
+            ],
+            "answer": [
+                "Atlantic",
+                "Indian"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "30485273"
+        },
+        {
+            "question": "Which animals can fly?",
+            "type": "multiple_choice",
+            "choices": [
+                "Eagle",
+                "Penguin",
+                "Bat",
+                "Ostrich"
+            ],
+            "answer": [
+                "Eagle",
+                "Bat"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "7ad70998"
+        },
+        {
+            "question": "Select prime numbers:",
+            "type": "multiple_choice",
+            "choices": [
+                "5",
+                "6",
+                "7",
+                "9"
+            ],
+            "answer": [
+                "5",
+                "7"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "1aa3424c"
+        },
+        {
+            "question": "Which are planets?",
+            "type": "multiple_choice",
+            "choices": [
+                "Mercury",
+                "Pluto",
+                "Neptune",
+                "Europa"
+            ],
+            "answer": [
+                "Mercury",
+                "Neptune"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "a97abc0e"
+        },
+        {
+            "question": "Choose vertebrates:",
+            "type": "multiple_choice",
+            "choices": [
+                "Shark",
+                "Octopus",
+                "Frog",
+                "Snail"
+            ],
+            "answer": [
+                "Shark",
+                "Frog"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "31c04031"
+        },
+        {
+            "question": "Pick cities in Australia:",
+            "type": "multiple_choice",
+            "choices": [
+                "Sydney",
+                "Perth",
+                "Auckland",
+                "Melbourne"
+            ],
+            "answer": [
+                "Sydney",
+                "Perth",
+                "Melbourne"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "1cacae26"
+        },
+        {
+            "question": "Select mammals:",
+            "type": "multiple_choice",
+            "choices": [
+                "Dolphin",
+                "Chicken",
+                "Kangaroo",
+                "Salmon"
+            ],
+            "answer": [
+                "Dolphin",
+                "Kangaroo"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "bd798efd"
+        },
+        {
+            "question": "The human skeleton has more than 200 bones.",
+            "type": "true_false",
+            "answer": true,
+            "has_image": false,
+            "image_path": "",
+            "id": "a6d54666"
+        },
+        {
+            "question": "Venus is the closest planet to the Sun.",
+            "type": "true_false",
+            "answer": false,
+            "has_image": false,
+            "image_path": "",
+            "id": "9ec5c551"
+        },
+        {
+            "question": "Lightning is hotter than the surface of the Sun.",
+            "type": "true_false",
+            "answer": true,
+            "has_image": false,
+            "image_path": "",
+            "id": "3ea5ace3"
+        },
+        {
+            "question": "Sharks are mammals.",
+            "type": "true_false",
+            "answer": false,
+            "has_image": false,
+            "image_path": "",
+            "id": "0add66eb"
+        },
+        {
+            "question": "The Amazon is the longest river in the world.",
+            "type": "true_false",
+            "answer": false,
+            "has_image": false,
+            "image_path": "",
+            "id": "2731a259"
+        },
+        {
+            "question": "Sound travels faster in water than in air.",
+            "type": "true_false",
+            "answer": true,
+            "has_image": false,
+            "image_path": "",
+            "id": "5e94ab46"
+        },
+        {
+            "question": "Earth has two moons.",
+            "type": "true_false",
+            "answer": false,
+            "has_image": false,
+            "image_path": "",
+            "id": "6b37ee24"
+        },
+        {
+            "question": "Polar bears live in Antarctica.",
+            "type": "true_false",
+            "answer": false,
+            "has_image": false,
+            "image_path": "",
+            "id": "1b65a5dd"
+        },
+        {
+            "question": "A leap year has 366 days.",
+            "type": "true_false",
+            "answer": true,
+            "has_image": false,
+            "image_path": "",
+            "id": "e8ddf5d7"
+        },
+        {
+            "question": "Bananas grow on trees.",
+            "type": "true_false",
+            "answer": false,
+            "has_image": false,
+            "image_path": "",
+            "id": "3423051b"
+        },
+        {
+            "question": "What is the capital city of Japan?",
+            "type": "short_answer",
+            "answer": "Tokyo",
+            "has_image": false,
+            "image_path": "",
+            "id": "aba262e2"
+        },
+        {
+            "question": "Who developed the theory of relativity?",
+            "type": "short_answer",
+            "answer": "Albert Einstein",
+            "has_image": false,
+            "image_path": "",
+            "id": "5f97d712"
+        },
+        {
+            "question": "What is the largest planet in our solar system?",
+            "type": "short_answer",
+            "answer": "Jupiter",
+            "has_image": false,
+            "image_path": "",
+            "id": "d84b4d36"
+        },
+        {
+            "question": "Which scientist proposed the three laws of motion?",
+            "type": "short_answer",
+            "answer": "Isaac Newton",
+            "has_image": false,
+            "image_path": "",
+            "id": "6dab277f"
+        },
+        {
+            "question": "What is the currency of the United Kingdom?",
+            "type": "short_answer",
+            "answer": "Pound sterling",
+            "has_image": false,
+            "image_path": "",
+            "id": "df873c35"
+        },
+        {
+            "question": "Who wrote 'Pride and Prejudice'?",
+            "type": "short_answer",
+            "answer": "Jane Austen",
+            "has_image": false,
+            "image_path": "",
+            "id": "98f1ae31"
+        },
+        {
+            "question": "What is the longest bone in the human body?",
+            "type": "short_answer",
+            "answer": "Femur",
+            "has_image": false,
+            "image_path": "",
+            "id": "0c656dcf"
+        },
+        {
+            "question": "What do bees collect from flowers?",
+            "type": "short_answer",
+            "answer": "Nectar",
+            "has_image": false,
+            "image_path": "",
+            "id": "4247cab3"
+        },
+        {
+            "question": "What is the freezing point of water in Celsius?",
+            "type": "short_answer",
+            "answer": "0",
+            "has_image": false,
+            "image_path": "",
+            "id": "bb4605bc"
+        },
+        {
+            "question": "Which instrument measures temperature?",
+            "type": "short_answer",
+            "answer": "Thermometer",
+            "has_image": false,
+            "image_path": "",
+            "id": "ad25e5b7"
+        },
+        {
+            "question": "Match country to capital:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Spain",
+                    "answer": "Madrid"
+                },
+                {
+                    "prompt": "Norway",
+                    "answer": "Oslo"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "e92d4a97"
+        },
+        {
+            "question": "Match animal to class:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Frog",
+                    "answer": "Amphibian"
+                },
+                {
+                    "prompt": "Eagle",
+                    "answer": "Bird"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "604581c8"
+        },
+        {
+            "question": "Match author to book:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "J.K. Rowling",
+                    "answer": "Harry Potter"
+                },
+                {
+                    "prompt": "George Orwell",
+                    "answer": "1984"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "079f0bb6"
+        },
+        {
+            "question": "Match instrument to family:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Trumpet",
+                    "answer": "Brass"
+                },
+                {
+                    "prompt": "Cello",
+                    "answer": "Strings"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "a9a3e076"
+        },
+        {
+            "question": "Match job to workplace:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Doctor",
+                    "answer": "Hospital"
+                },
+                {
+                    "prompt": "Teacher",
+                    "answer": "School"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "4a2b2798"
+        },
+        {
+            "question": "Match tool to use:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Hammer",
+                    "answer": "Nails"
+                },
+                {
+                    "prompt": "Brush",
+                    "answer": "Paint"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "a80b4ec3"
+        },
+        {
+            "question": "Match country to continent:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Brazil",
+                    "answer": "South America"
+                },
+                {
+                    "prompt": "Kenya",
+                    "answer": "Africa"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "c745f8e4"
+        },
+        {
+            "question": "Match planet to feature:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Saturn",
+                    "answer": "Rings"
+                },
+                {
+                    "prompt": "Mars",
+                    "answer": "Red Planet"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "a691e55b"
+        },
+        {
+            "question": "Match sport to ball:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Basketball",
+                    "answer": "Orange ball"
+                },
+                {
+                    "prompt": "Golf",
+                    "answer": "Small white ball"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "9fe36149"
+        },
+        {
+            "question": "Match energy type to source:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Solar",
+                    "answer": "Sun"
+                },
+                {
+                    "prompt": "Hydro",
+                    "answer": "Water"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "217c7e59"
+        },
+        {
+            "question": "Order the colors of a rainbow starting from the top:",
+            "type": "ordering",
+            "answer": [
+                "Red",
+                "Orange",
+                "Yellow",
+                "Green",
+                "Blue",
+                "Indigo",
+                "Violet"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "bdcab1c9"
+        },
+        {
+            "question": "Order the stages of human life:",
+            "type": "ordering",
+            "answer": [
+                "Infant",
+                "Child",
+                "Teenager",
+                "Adult"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "23c96303"
+        },
+        {
+            "question": "Order the months of the first quarter:",
+            "type": "ordering",
+            "answer": [
+                "January",
+                "February",
+                "March"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "c0d2e6c5"
+        },
+        {
+            "question": "Order these computers by release date:",
+            "type": "ordering",
+            "answer": [
+                "ENIAC",
+                "IBM PC",
+                "Macintosh",
+                "iPhone"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "3fe1a719"
+        },
+        {
+            "question": "Order planets by distance from the Sun (closest first):",
+            "type": "ordering",
+            "answer": [
+                "Mercury",
+                "Venus",
+                "Earth",
+                "Mars"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "0c56c7af"
+        },
+        {
+            "question": "Order the following numbers from largest to smallest:",
+            "type": "ordering",
+            "answer": [
+                "100",
+                "50",
+                "25",
+                "10"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "17556732"
+        },
+        {
+            "question": "Order the cooking steps:",
+            "type": "ordering",
+            "answer": [
+                "Prepare ingredients",
+                "Cook",
+                "Serve"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "77f38c3e"
+        },
+        {
+            "question": "Alphabetically order the animals:",
+            "type": "ordering",
+            "answer": [
+                "Bear",
+                "Cat",
+                "Dog",
+                "Elephant"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "93a19291"
+        },
+        {
+            "question": "Order historical periods:",
+            "type": "ordering",
+            "answer": [
+                "Ancient",
+                "Medieval",
+                "Renaissance",
+                "Industrial"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "7efcaf76"
+        },
+        {
+            "question": "Order these fractions from smallest to largest:",
+            "type": "ordering",
+            "answer": [
+                "1/8",
+                "1/4",
+                "1/2",
+                "3/4"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "08c098b4"
+        },
+        {
+            "question": "Which continent is Egypt in?",
+            "type": "single_choice",
+            "choices": [
+                "Asia",
+                "Africa",
+                "Europe",
+                "South America"
+            ],
+            "answer": "Africa",
+            "has_image": false,
+            "image_path": "",
+            "id": "16e25b03"
+        },
+        {
+            "question": "What is the boiling point of water in Celsius?",
+            "type": "single_choice",
+            "choices": [
+                "80",
+                "90",
+                "95",
+                "100"
+            ],
+            "answer": "100",
+            "has_image": false,
+            "image_path": "",
+            "id": "563c0126"
+        },
+        {
+            "question": "Who invented the telephone?",
+            "type": "single_choice",
+            "choices": [
+                "Newton",
+                "Bell",
+                "Edison",
+                "Tesla"
+            ],
+            "answer": "Bell",
+            "has_image": false,
+            "image_path": "",
+            "id": "49527d3e"
+        },
+        {
+            "question": "Which planet is known as the Blue Planet?",
+            "type": "single_choice",
+            "choices": [
+                "Mars",
+                "Neptune",
+                "Earth",
+                "Uranus"
+            ],
+            "answer": "Earth",
+            "has_image": false,
+            "image_path": "",
+            "id": "231555af"
+        },
+        {
+            "question": "What is the capital of Germany?",
+            "type": "single_choice",
+            "choices": [
+                "Munich",
+                "Hamburg",
+                "Berlin",
+                "Cologne"
+            ],
+            "answer": "Berlin",
+            "has_image": false,
+            "image_path": "",
+            "id": "e6753a18"
+        },
+        {
+            "question": "Which animal has a trunk?",
+            "type": "single_choice",
+            "choices": [
+                "Hippo",
+                "Elephant",
+                "Rhino",
+                "Giraffe"
+            ],
+            "answer": "Elephant",
+            "has_image": false,
+            "image_path": "",
+            "id": "be234b1b"
+        },
+        {
+            "question": "Which gas is most abundant in Earth's atmosphere?",
+            "type": "single_choice",
+            "choices": [
+                "Oxygen",
+                "Nitrogen",
+                "CO2",
+                "Hydrogen"
+            ],
+            "answer": "Nitrogen",
+            "has_image": false,
+            "image_path": "",
+            "id": "4d8bfe24"
+        },
+        {
+            "question": "Which shape has 5 sides?",
+            "type": "single_choice",
+            "choices": [
+                "Triangle",
+                "Square",
+                "Pentagon",
+                "Hexagon"
+            ],
+            "answer": "Pentagon",
+            "has_image": false,
+            "image_path": "",
+            "id": "02e493ba"
+        },
+        {
+            "question": "What is the capital of Italy?",
+            "type": "single_choice",
+            "choices": [
+                "Rome",
+                "Milan",
+                "Naples",
+                "Turin"
+            ],
+            "answer": "Rome",
+            "has_image": false,
+            "image_path": "",
+            "id": "e778c498"
+        },
+        {
+            "question": "Which planet is closest to the Sun?",
+            "type": "single_choice",
+            "choices": [
+                "Venus",
+                "Earth",
+                "Mercury",
+                "Mars"
+            ],
+            "answer": "Mercury",
+            "has_image": false,
+            "image_path": "",
+            "id": "0bb8bccb"
+        },
+        {
+            "question": "Select the seasons:",
+            "type": "multiple_choice",
+            "choices": [
+                "Dry",
+                "Summer",
+                "Autumn",
+                "Winter"
+            ],
+            "answer": [
+                "Summer",
+                "Autumn",
+                "Winter"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "abdde4f4"
+        },
+        {
+            "question": "Pick the prime numbers:",
+            "type": "multiple_choice",
+            "choices": [
+                "11",
+                "12",
+                "13",
+                "14"
+            ],
+            "answer": [
+                "11",
+                "13"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "76d6f300"
+        },
+        {
+            "question": "Select reptiles:",
+            "type": "multiple_choice",
+            "choices": [
+                "Snake",
+                "Lizard",
+                "Frog",
+                "Whale"
+            ],
+            "answer": [
+                "Snake",
+                "Lizard"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "f8bf87ac"
+        },
+        {
+            "question": "Choose web technologies:",
+            "type": "multiple_choice",
+            "choices": [
+                "HTML",
+                "CSS",
+                "SQL",
+                "Excel"
+            ],
+            "answer": [
+                "HTML",
+                "CSS",
+                "SQL"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "fe382139"
+        },
+        {
+            "question": "Gold is heavier than water.",
+            "type": "true_false",
+            "answer": true,
+            "has_image": false,
+            "image_path": "",
+            "id": "611f48e0"
+        },
+        {
+            "question": "The sun rises in the west.",
+            "type": "true_false",
+            "answer": false,
+            "has_image": false,
+            "image_path": "",
+            "id": "5778b953"
+        },
+        {
+            "question": "Spiders are insects.",
+            "type": "true_false",
+            "answer": false,
+            "has_image": false,
+            "image_path": "",
+            "id": "1bfcab34"
+        },
+        {
+            "question": "A hexagon has six sides.",
+            "type": "true_false",
+            "answer": true,
+            "has_image": false,
+            "image_path": "",
+            "id": "8b18ebb7"
+        },
+        {
+            "question": "Plants produce oxygen.",
+            "type": "true_false",
+            "answer": true,
+            "has_image": false,
+            "image_path": "",
+            "id": "d9166b66"
+        },
+        {
+            "question": "What is the main language spoken in Brazil?",
+            "type": "short_answer",
+            "answer": "Portuguese",
+            "has_image": false,
+            "image_path": "",
+            "id": "31b197f5"
+        },
+        {
+            "question": "What is the chemical symbol for sodium?",
+            "type": "short_answer",
+            "answer": "Na",
+            "has_image": false,
+            "image_path": "",
+            "id": "a3274e33"
+        },
+        {
+            "question": "Which planet is famous for its rings?",
+            "type": "short_answer",
+            "answer": "Saturn",
+            "has_image": false,
+            "image_path": "",
+            "id": "904520b1"
+        },
+        {
+            "question": "What is the capital of Russia?",
+            "type": "short_answer",
+            "answer": "Moscow",
+            "has_image": false,
+            "image_path": "",
+            "id": "c204d50b"
+        },
+        {
+            "question": "Who painted the Mona Lisa?",
+            "type": "short_answer",
+            "answer": "Leonardo da Vinci",
+            "has_image": false,
+            "image_path": "",
+            "id": "3bfa29ba"
+        },
+        {
+            "question": "Match inventor to invention:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Edison",
+                    "answer": "Light Bulb"
+                },
+                {
+                    "prompt": "Wright Brothers",
+                    "answer": "Airplane"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "8d98e7be"
+        },
+        {
+            "question": "Match country to famous landmark:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "France",
+                    "answer": "Eiffel Tower"
+                },
+                {
+                    "prompt": "India",
+                    "answer": "Taj Mahal"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "8eae5e3d"
+        },
+        {
+            "question": "Order the following weights from lightest to heaviest:",
+            "type": "ordering",
+            "answer": [
+                "Feather",
+                "Book",
+                "Car",
+                "Elephant"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "71ac87da"
+        },
+        {
+            "question": "Order the following time units from shortest to longest:",
+            "type": "ordering",
+            "answer": [
+                "Second",
+                "Minute",
+                "Hour",
+                "Day"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "5db8f240"
+        },
+        {
+            "question": "Which metal is used in thermometers traditionally?",
+            "type": "single_choice",
+            "choices": [
+                "Mercury",
+                "Copper",
+                "Iron",
+                "Silver"
+            ],
+            "answer": "Mercury",
+            "has_image": false,
+            "image_path": "",
+            "id": "05c880a7"
+        },
+        {
+            "question": "Which are continents?",
+            "type": "multiple_choice",
+            "choices": [
+                "Asia",
+                "Europe",
+                "Greenland",
+                "Africa"
+            ],
+            "answer": [
+                "Asia",
+                "Europe",
+                "Africa"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "3e20c1dd"
+        },
+        {
+            "question": "The Moon orbits the Earth.",
+            "type": "true_false",
+            "answer": true,
+            "has_image": false,
+            "image_path": "",
+            "id": "782b3561"
+        },
+        {
+            "question": "What is the tallest mountain on Earth?",
+            "type": "short_answer",
+            "answer": "Mount Everest",
+            "has_image": false,
+            "image_path": "",
+            "id": "5fdfba1f"
+        },
+        {
+            "question": "Match country to currency:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "USA",
+                    "answer": "Dollar"
+                },
+                {
+                    "prompt": "Japan",
+                    "answer": "Yen"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "8a922c2a"
+        },
+        {
+            "question": "Order the planets by size (smallest to largest):",
+            "type": "ordering",
+            "answer": [
+                "Mercury",
+                "Mars",
+                "Earth",
+                "Neptune"
+            ],
+            "has_image": true,
+            "image_path": "data/quizzes/4d6e1a55-f5bd-4ec6-9911-5318ef748a9a/media/planet_order.jpg",
+            "id": "d5e3ac03"
+        },
+        {
+            "question": "What is the capital of Spain?",
+            "type": "short_answer",
+            "answer": "Madrid",
+            "has_image": true,
+            "image_path": "data/quizzes/4d6e1a55-f5bd-4ec6-9911-5318ef748a9a/media/Madrid.png",
+            "id": "04ea522d"
+        },
+        {
+            "question": "Which animals are birds?",
+            "type": "multiple_choice",
+            "choices": [
+                "Eagle",
+                "Bat",
+                "Penguin",
+                "Frog"
+            ],
+            "answer": [
+                "Eagle",
+                "Penguin"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "5b132ad5"
+        },
+        {
+            "question": "Which device stores digital data?",
+            "type": "single_choice",
+            "choices": [
+                "Monitor",
+                "Keyboard",
+                "Hard Drive",
+                "Mouse"
+            ],
+            "answer": "Hard Drive",
+            "has_image": true,
+            "image_path": "data/quizzes/4d6e1a55-f5bd-4ec6-9911-5318ef748a9a/media/stores_digital_data.png",
+            "id": "a966f49c"
+        },
+        {
+            "question": "Water boils at 212\u00b0F.",
+            "type": "true_false",
+            "answer": true,
+            "has_image": true,
+            "image_path": "data/quizzes/4d6e1a55-f5bd-4ec6-9911-5318ef748a9a/media/Water_boils.png",
+            "id": "68ca739c"
+        },
+        {
+            "question": "Match country to language:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Mexico",
+                    "answer": "Spanish"
+                },
+                {
+                    "prompt": "Germany",
+                    "answer": "German"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "87875e38"
+        },
+        {
+            "question": "Order the planets by distance from the Sun (farthest to closest):",
+            "type": "ordering",
+            "answer": [
+                "Neptune",
+                "Uranus",
+                "Saturn",
+                "Jupiter"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "f8082f20"
+        }
+    ],
+    "moderation": {
+        "owner_id": "legacy",
+        "status": "pending_review",
+        "visibility": "public",
+        "allowed_user_ids": [],
+        "reviewed_by": "1",
+        "reviewed_at": "2026-08-07T20:02:49.116209+00:00",
+        "review_note": ""
+    }
+}

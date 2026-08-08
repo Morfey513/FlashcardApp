@@ -1,0 +1,27 @@
+{
+    "id": "c3957b7d-c86a-4a93-bc14-bad7943d74d4",
+    "name": "Science",
+    "questions": [
+        {
+            "id": "q1",
+            "type": "short_answer",
+            "question": "One",
+            "answer": "1"
+        },
+        {
+            "id": "q2",
+            "type": "short_answer",
+            "question": "Two",
+            "answer": "2"
+        }
+    ],
+    "moderation": {
+        "owner_id": "legacy",
+        "status": "published",
+        "visibility": "public",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": ""
+    }
+}

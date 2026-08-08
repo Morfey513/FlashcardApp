@@ -1,0 +1,95 @@
+{
+    "id": "da5430fa-b771-4262-9383-90e4e3abc3f0",
+    "name": "General Quiz (Copy)",
+    "questions": [
+        {
+            "question": "Which planet has the most moons?",
+            "type": "single_choice",
+            "choices": [
+                "Mars",
+                "Jupiter",
+                "Earth",
+                "Saturn"
+            ],
+            "answer": "Saturn",
+            "has_image": false,
+            "image_path": "",
+            "id": "fba875bc"
+        },
+        {
+            "question": "Select all fruits:",
+            "type": "multiple_choice",
+            "choices": [
+                "Apple",
+                "Carrot",
+                "Banana",
+                "Potato"
+            ],
+            "answer": [
+                "Apple",
+                "Banana"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "4f7afa52"
+        },
+        {
+            "question": "The human skeleton has more than 200 bones.",
+            "type": "true_false",
+            "answer": true,
+            "has_image": false,
+            "image_path": "",
+            "id": "a6d54666"
+        },
+        {
+            "question": "What is the capital city of Japan?",
+            "type": "short_answer",
+            "answer": "Tokyo",
+            "has_image": false,
+            "image_path": "",
+            "id": "aba262e2"
+        },
+        {
+            "question": "Match country to capital:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Spain",
+                    "answer": "Madrid"
+                },
+                {
+                    "prompt": "Norway",
+                    "answer": "Oslo"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "e92d4a97"
+        },
+        {
+            "question": "Order the colors of a rainbow starting from the top:",
+            "type": "ordering",
+            "answer": [
+                "Red",
+                "Orange",
+                "Yellow",
+                "Green",
+                "Blue",
+                "Indigo",
+                "Violet"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "bdcab1c9"
+        }
+    ],
+    "moderation": {
+        "owner_id": "legacy",
+        "status": "published",
+        "visibility": "public",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": ""
+    }
+}

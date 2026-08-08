@@ -1,0 +1,22 @@
+[
+    {
+        "id": "073af40a-153f-4940-a305-5f4b764f92c4",
+        "name": "Sample Deck",
+        "file": "data/flashcards/073af40a-153f-4940-a305-5f4b764f92c4/deck.json"
+    },
+    {
+        "id": "8f348fc7-0545-413c-96c6-52b0800b4ef0",
+        "name": "Sample Deck Copy",
+        "file": "data/flashcards/8f348fc7-0545-413c-96c6-52b0800b4ef0/deck.json"
+    },
+    {
+        "id": "4b6715a7-8457-4888-957e-142f8c606b16",
+        "name": "Sample Deck Copy Copy",
+        "file": "data/flashcards/4b6715a7-8457-4888-957e-142f8c606b16/deck.json"
+    },
+    {
+        "id": "b392701f-692d-40b3-807b-a5ff052bf81b",
+        "name": "asd",
+        "file": "data/flashcards/b392701f-692d-40b3-807b-a5ff052bf81b/deck.json"
+    }
+]

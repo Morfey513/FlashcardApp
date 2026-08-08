@@ -1,0 +1,11 @@
+{
+    "id": "0aed0350-cc73-49c5-a921-d7ae73bf0fa9",
+    "name": "Deck",
+    "cards": [
+        {
+            "id": "card",
+            "front": "Prompt",
+            "back": "Answer"
+        }
+    ]
+}

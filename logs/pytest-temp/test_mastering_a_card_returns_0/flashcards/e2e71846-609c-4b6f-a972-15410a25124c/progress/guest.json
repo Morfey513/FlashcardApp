@@ -1,0 +1,11 @@
+{
+    "first": {
+        "correct": 5,
+        "wrong": 0
+    },
+    "second": {
+        "correct": 5,
+        "wrong": 0,
+        "mastered": true
+    }
+}

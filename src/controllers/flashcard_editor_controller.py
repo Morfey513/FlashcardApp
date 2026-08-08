@@ -1,0 +1,197 @@
+# src/controllers/flashcard_editor_controller.py
+
+import logging
+import uuid
+from pathlib import Path
+from src.storage.flashcard_repository import FlashcardRepository
+from src.utils.paths import resolve_stored_path, to_stored_path
+
+logger = logging.getLogger(__name__)
+
+
+class FlashcardEditorController:
+    def __init__(self, owner_id="legacy", role="teacher"):
+        self.repo = FlashcardRepository()
+        self.owner_id = str(owner_id)
+        self.role = role
+        self.current_deck_info = None
+        self.current_cards = []
+        self.has_unsaved_changes = False
+
+    def get_deck_names(self):
+        return [d["name"] for d in self._editable_decks()]
+
+    def get_deck_entries(self):
+        """Editable deck rows with their lifecycle status."""
+        metadata = {item["file"]: item for item in self._moderation_items()}
+        return [
+            {**deck, "status": metadata[deck["file"]]["status"]}
+            for deck in self._editable_decks()
+        ]
+
+    def get_current_moderation(self):
+        if not self.current_deck_info:
+            return {}
+        return next(
+            (item for item in self._moderation_items() if item["file"] == self.current_deck_info["file"]),
+            {},
+        )
+
+    def create_deck(self, name):
+        return self.repo.create_deck(name, owner_id=self.owner_id)
+
+    def load_deck(self, name):
+        decks = self._editable_decks()
+        self.current_deck_info = next((d for d in decks if d["name"] == name), None)
+        if self.current_deck_info:
+            self.current_cards = self.repo.load_deck_cards(self.current_deck_info["file"])
+            self.has_unsaved_changes = False
+            return True
+        return False
+
+    def save_deck(self, cards, submit_for_review=False):
+        """Save a draft, or save and submit it to the moderation queue."""
+        try:
+            if not self.current_deck_info:
+                logger.error("No deck loaded to save")
+                return False
+
+            # 1. Ensure IDs exist (crucial for progress tracking)
+            for card in cards:
+                if not card.get('id'):
+                    card['id'] = str(uuid.uuid4())
+
+            # 2. Persist the JSON file
+            rel_path = self.current_deck_info["file"]
+            self.repo.save_deck_content(rel_path, cards)
+            from src.storage.moderation_repository import ModerationRepository
+            status = "pending_review" if submit_for_review else "draft"
+            ModerationRepository(flashcards=self.repo).set_content_status(
+                rel_path, "flashcard", status, self.owner_id
+            )
+
+            # 3. Progress Cleanup: Remove mastery data for cards that no longer exist
+            valid_ids = {c['id'] for c in cards}
+            self.repo.prune_progress(rel_path, valid_ids)
+
+            self.has_unsaved_changes = False
+            self.current_cards = cards
+            logger.info(f"Saved deck with {len(cards)} cards")
+            return True
+
+        except Exception as e:
+            logger.error(f"Controller save failed: {e}")
+            return False
+
+    # =========================================================
+    # CARD CRUD OPERATIONS
+    # =========================================================
+
+    def add_card(self, card_data: dict):
+        """Add a new card with generated ID."""
+        card_data["id"] = str(uuid.uuid4())
+        self.current_cards.append(card_data)
+        self.has_unsaved_changes = True
+        logger.debug(f"Added new card with ID: {card_data['id']}")
+        return True
+
+    def update_card(self, index: int, card_data: dict):
+        """Update existing card, preserving its ID."""
+        if 0 <= index < len(self.current_cards):
+            # Preserve original ID
+            card_data["id"] = self.current_cards[index].get("id")
+            self.current_cards[index] = card_data
+            self.has_unsaved_changes = True
+            logger.debug(f"Updated card at index {index}")
+            return True
+        return False
+
+    def duplicate_card(self, index: int):
+        """Clone a card with a fresh ID."""
+        if 0 <= index < len(self.current_cards):
+            new_card = self.current_cards[index].copy()
+            new_card["id"] = str(uuid.uuid4())
+            new_card["front"] += " (Copy)"
+            self.current_cards.append(new_card)
+            self.has_unsaved_changes = True
+            logger.debug(f"Duplicated card at index {index}")
+            return True
+        return False
+
+    def remove_card(self, index: int):
+        """Remove a card from the deck."""
+        if 0 <= index < len(self.current_cards):
+            removed = self.current_cards.pop(index)
+            self.has_unsaved_changes = True
+            logger.debug(f"Removed card: {removed.get('front', 'Unknown')[:30]}")
+            return True
+        return False
+
+    def delete_deck(self, name):
+        """Delete a deck permanently."""
+        return self.repo.delete_deck_permanently(name)
+
+    def copy_deck(self, original_name, new_name):
+        """Copy a deck with new IDs."""
+        return self.repo.copy_deck(original_name, new_name, self.owner_id)
+
+    def _editable_decks(self):
+        items = self._moderation_items()
+        allowed = {
+            item["file"] for item in items
+            if item["kind"] == "flashcard"
+            and (self.role == "admin" or str(item["owner_id"]) == self.owner_id)
+        }
+        return [deck for deck in self.repo.get_all_decks() if deck["file"] in allowed]
+
+    def _moderation_items(self):
+        from src.storage.moderation_repository import ModerationRepository
+        return ModerationRepository(flashcards=self.repo).get_all_content()
+
+    # =========================================================
+    # PATH HELPERS (Business Logic)
+    # =========================================================
+
+    def process_image_path(self, absolute_path: str) -> str:
+        """
+        Convert absolute file path to project-relative storage format.
+
+        Args:
+            absolute_path: Absolute path from QFileDialog
+
+        Returns:
+            Relative path string for JSON storage
+        """
+        if self.current_deck_info:
+            stored_path = self.repo.import_media(
+                self.current_deck_info["file"], absolute_path
+            )
+        else:
+            stored_path = to_stored_path(absolute_path)
+        logger.debug(f"Converted path: {absolute_path} -> {stored_path}")
+        return stored_path
+
+    def process_audio_path(self, absolute_path: str) -> str:
+        """
+        Convert absolute audio path to project-relative storage format.
+
+        Args:
+            absolute_path: Absolute path from QFileDialog
+
+        Returns:
+            Relative path string for JSON storage
+        """
+        # Same logic as image paths
+        return self.process_image_path(absolute_path)
+
+    def get_absolute_path(self, stored_path: str) -> Path:
+        """
+        Convert stored path back to absolute Path for UI display/loading.
+
+        Args:
+            stored_path: Path string from JSON (relative or absolute)
+
+        Returns:
+            Absolute Path object
+        """
+        return resolve_stored_path(stored_path)

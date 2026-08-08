@@ -1,0 +1,38 @@
+{
+    "id": "8f348fc7-0545-413c-96c6-52b0800b4ef0",
+    "name": "Sample Deck Copy",
+    "cards": [
+        {
+            "id": "da37e2d4-5d91-40ea-9774-a27e7e5f5ba7",
+            "front": "What is the capital of France?",
+            "back": "Paris",
+            "hint": "City of Lights",
+            "description": "Paris is the capital and most populous city of France.",
+            "image": "data/flashcards/8f348fc7-0545-413c-96c6-52b0800b4ef0/media/city_of_lights.jpg",
+            "audio": {
+                "front": "data/flashcards/8f348fc7-0545-413c-96c6-52b0800b4ef0/media/front.mp3",
+                "back": "data/flashcards/8f348fc7-0545-413c-96c6-52b0800b4ef0/media/back.mp3",
+                "hint": "data/flashcards/8f348fc7-0545-413c-96c6-52b0800b4ef0/media/hint.mp3",
+                "description": "data/flashcards/8f348fc7-0545-413c-96c6-52b0800b4ef0/media/description.mp3"
+            }
+        },
+        {
+            "id": "66cac1b9-229f-431e-b1b7-b95573389fd5",
+            "front": "What is 2 + 2?",
+            "back": "4",
+            "hint": "It's a small number",
+            "description": "Basic arithmetic",
+            "image": "",
+            "audio": ""
+        }
+    ],
+    "moderation": {
+        "owner_id": "legacy",
+        "status": "banned",
+        "visibility": "public",
+        "allowed_user_ids": [],
+        "reviewed_by": "1",
+        "reviewed_at": "2026-08-08T13:35:18.958057+00:00",
+        "review_note": "zxc"
+    }
+}

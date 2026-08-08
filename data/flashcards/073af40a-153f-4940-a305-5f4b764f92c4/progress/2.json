@@ -1,0 +1,12 @@
+{
+    "a1b2": {
+        "correct": 5,
+        "wrong": 0,
+        "mastered": false
+    },
+    "c3d4": {
+        "correct": 5,
+        "wrong": 0,
+        "mastered": false
+    }
+}

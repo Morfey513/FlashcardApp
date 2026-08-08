@@ -1,0 +1,22 @@
+[
+    {
+        "id": "4d6e1a55-f5bd-4ec6-9911-5318ef748a9a",
+        "name": "General Quiz",
+        "file": "data/quizzes/4d6e1a55-f5bd-4ec6-9911-5318ef748a9a/quiz.json"
+    },
+    {
+        "id": "da5430fa-b771-4262-9383-90e4e3abc3f0",
+        "name": "General Quiz (Copy)",
+        "file": "data/quizzes/da5430fa-b771-4262-9383-90e4e3abc3f0/quiz.json"
+    },
+    {
+        "id": "3910b06b-7c01-45b2-87e4-d8e426dc9d68",
+        "name": "General Quiz (Copy) (Copy)",
+        "file": "data/quizzes/3910b06b-7c01-45b2-87e4-d8e426dc9d68/quiz.json"
+    },
+    {
+        "id": "62a23948-edff-4725-9623-b174e1fe084b",
+        "name": "General Quiz (Copy) (Copy)asd",
+        "file": "data/quizzes/62a23948-edff-4725-9623-b174e1fe084b/quiz.json"
+    }
+]

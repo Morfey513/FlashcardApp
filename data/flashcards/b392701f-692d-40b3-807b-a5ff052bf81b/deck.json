@@ -1,0 +1,24 @@
+{
+    "id": "b392701f-692d-40b3-807b-a5ff052bf81b",
+    "name": "asd",
+    "cards": [
+        {
+            "front": "asd",
+            "back": "asd",
+            "hint": "",
+            "description": "",
+            "image": "",
+            "audio": {},
+            "id": "3267e173-e612-4dea-8fe3-1ff36d561208"
+        }
+    ],
+    "moderation": {
+        "owner_id": "4",
+        "status": "banned",
+        "visibility": "public",
+        "allowed_user_ids": [],
+        "reviewed_by": "1",
+        "reviewed_at": "2026-08-08T13:55:57.717033+00:00",
+        "review_note": "df"
+    }
+}

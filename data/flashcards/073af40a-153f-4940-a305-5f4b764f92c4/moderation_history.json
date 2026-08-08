@@ -1,0 +1,20 @@
+[
+    {
+        "timestamp": "2026-08-05T15:28:20.905737+00:00",
+        "action": "published",
+        "actor_id": "1",
+        "note": ""
+    },
+    {
+        "timestamp": "2026-08-07T13:41:20.103649+00:00",
+        "action": "draft",
+        "actor_id": "1",
+        "note": "asd"
+    },
+    {
+        "timestamp": "2026-08-07T13:41:26.742426+00:00",
+        "action": "published",
+        "actor_id": "1",
+        "note": "asd"
+    }
+]

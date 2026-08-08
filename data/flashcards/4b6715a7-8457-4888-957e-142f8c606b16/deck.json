@@ -1,0 +1,47 @@
+{
+    "id": "4b6715a7-8457-4888-957e-142f8c606b16",
+    "name": "Sample Deck Copy Copy",
+    "cards": [
+        {
+            "id": "0aa67411-1fb2-45d8-9fb6-ed0463fb30ca",
+            "front": "What is the capital of France?",
+            "back": "Paris",
+            "hint": "City of Lights",
+            "description": "Paris is the capital and most populous city of France.",
+            "image": "data/flashcards/8f348fc7-0545-413c-96c6-52b0800b4ef0/media/city_of_lights.jpg",
+            "audio": {
+                "front": "data/flashcards/8f348fc7-0545-413c-96c6-52b0800b4ef0/media/front.mp3",
+                "back": "data/flashcards/8f348fc7-0545-413c-96c6-52b0800b4ef0/media/back.mp3",
+                "hint": "data/flashcards/8f348fc7-0545-413c-96c6-52b0800b4ef0/media/hint.mp3",
+                "description": "data/flashcards/8f348fc7-0545-413c-96c6-52b0800b4ef0/media/description.mp3"
+            }
+        },
+        {
+            "id": "089dc63f-1a68-4bc8-9515-d10f5ce447ca",
+            "front": "What is 2 + 2?",
+            "back": "4",
+            "hint": "It's a small number",
+            "description": "Basic arithmetic",
+            "image": "",
+            "audio": ""
+        },
+        {
+            "front": "asd",
+            "back": "asd",
+            "hint": "",
+            "description": "",
+            "image": "",
+            "audio": {},
+            "id": "a61a328e-23e5-48a3-878c-ddc3a6072262"
+        }
+    ],
+    "moderation": {
+        "owner_id": "1",
+        "status": "rejected",
+        "visibility": "public",
+        "allowed_user_ids": [],
+        "reviewed_by": "1",
+        "reviewed_at": "2026-08-07T17:42:49.602155+00:00",
+        "review_note": ""
+    }
+}

@@ -1,0 +1,95 @@
+{
+    "id": "62a23948-edff-4725-9623-b174e1fe084b",
+    "name": "General Quiz (Copy) (Copy)asd",
+    "questions": [
+        {
+            "question": "Which planet has the most moons?",
+            "type": "single_choice",
+            "choices": [
+                "Mars",
+                "Jupiter",
+                "Earth",
+                "Saturn"
+            ],
+            "answer": "Saturn",
+            "has_image": false,
+            "image_path": "",
+            "id": "6f84eca1-4631-4f83-85dc-29d466fcede7"
+        },
+        {
+            "question": "Select all fruits:",
+            "type": "multiple_choice",
+            "choices": [
+                "Apple",
+                "Carrot",
+                "Banana",
+                "Potato"
+            ],
+            "answer": [
+                "Apple",
+                "Banana"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "b91fad4b-44e4-4f0c-8db7-3e0133f7de57"
+        },
+        {
+            "question": "The human skeleton has more than 200 bones.",
+            "type": "true_false",
+            "answer": true,
+            "has_image": false,
+            "image_path": "",
+            "id": "d5dc2b34-65c4-4053-ba61-bb4612c55577"
+        },
+        {
+            "question": "What is the capital city of Japan?",
+            "type": "short_answer",
+            "answer": "Tokyo",
+            "has_image": false,
+            "image_path": "",
+            "id": "ede486c9-87b9-46b4-80e6-2a7931b5a671"
+        },
+        {
+            "question": "Match country to capital:",
+            "type": "matching",
+            "pairs": [
+                {
+                    "prompt": "Spain",
+                    "answer": "Madrid"
+                },
+                {
+                    "prompt": "Norway",
+                    "answer": "Oslo"
+                }
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "266f27c9-e0f2-4248-8088-8343108d7c04"
+        },
+        {
+            "question": "Order the colors of a rainbow starting from the top:",
+            "type": "ordering",
+            "answer": [
+                "Red",
+                "Orange",
+                "Yellow",
+                "Green",
+                "Blue",
+                "Indigo",
+                "Violet"
+            ],
+            "has_image": false,
+            "image_path": "",
+            "id": "651cded0-38de-4c20-a075-dcdeb00900f6"
+        }
+    ],
+    "moderation": {
+        "owner_id": "1",
+        "status": "published",
+        "visibility": "public",
+        "allowed_user_ids": [],
+        "reviewed_by": "1",
+        "reviewed_at": "2026-08-07T20:01:24.306677+00:00",
+        "review_note": ""
+    }
+}

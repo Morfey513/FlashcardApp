@@ -1,0 +1,20 @@
+[
+    {
+        "timestamp": "2026-08-07T17:14:44.605340+00:00",
+        "action": "draft",
+        "actor_id": "1",
+        "note": ""
+    },
+    {
+        "timestamp": "2026-08-07T17:14:47.214607+00:00",
+        "action": "pending_review",
+        "actor_id": "1",
+        "note": ""
+    },
+    {
+        "timestamp": "2026-08-07T17:15:19.785999+00:00",
+        "action": "banned",
+        "actor_id": "1",
+        "note": "zxc"
+    }
+]

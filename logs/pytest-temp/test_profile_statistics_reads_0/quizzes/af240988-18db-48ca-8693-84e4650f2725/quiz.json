@@ -1,0 +1,12 @@
+{
+    "id": "af240988-18db-48ca-8693-84e4650f2725",
+    "name": "Quiz",
+    "questions": [
+        {
+            "id": "question",
+            "type": "short_answer",
+            "question": "Question",
+            "answer": "Answer"
+        }
+    ]
+}
