@@ -22,3 +22,5 @@ logs/
 data/settings.json
 data/flashcards/*/progress/*.json
 data/quizzes/*/progress/*.json
+
+*.spec
