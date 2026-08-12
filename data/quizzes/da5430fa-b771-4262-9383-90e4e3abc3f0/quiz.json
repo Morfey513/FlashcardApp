@@ -88,8 +88,8 @@
         "status": "published",
         "visibility": "public",
         "allowed_user_ids": [],
-        "reviewed_by": null,
-        "reviewed_at": null,
+        "reviewed_by": "1",
+        "reviewed_at": "2026-08-12T05:20:17.639102+00:00",
         "review_note": ""
     }
 }

@@ -4,6 +4,24 @@ A local PyQt6 study application with quiz, flashcard, and content-editor modes.
 Content, settings, and flashcard study progress are stored as JSON files under
 `data/`.
 
+## Table of contents
+
+- [Technology](#technology)
+- [Architecture](#architecture)
+- [Current capabilities](#current-capabilities)
+- [Screenshots](#screenshots)
+- [Project layout](#project-layout)
+- [Running the application](#running-the-application)
+  - [Requirements and dependencies](#requirements-and-dependencies)
+- [Running tests](#running-tests)
+  - [Test approach](#test-approach)
+- [Version-control notes](#version-control-notes)
+- [New features to implement](#new-features-to-implement)
+- [Refactoring](#refactoring)
+- [Implemented features](#implemented-features)
+- [Bugs and verification status](#bugs-and-verification-status)
+- [Historical notes](#historical-notes)
+
 ## Technology
 
 - **Python 3.10+** — application, learning logic, controllers, repositories,
@@ -170,6 +188,24 @@ Python/test caches. If any of those files were committed before being ignored,
 Git will continue tracking them until they are explicitly removed from the Git
 index with `git rm --cached`.
 
+## New features to implement
+
+### Priority: local application to server-backed application
+
+1. **Optional testing-mode history.** Keep all quiz questions available and
+   persist completed attempts per user, including best/latest score and attempt
+   count. This is intentionally separate from learning-mode mastery, because
+   showing the correct answer before manually marking a question learned is
+   useful for study but would distort a formal test result.
+2. **PostgreSQL and application server.** Replace JSON persistence with a
+   PostgreSQL-backed data-access layer behind a Python API. Start with the
+   local PC as the server host, then migrate the same API/database design to a
+   managed cloud service when remote access is needed. PyQt clients should use
+   the API rather than connect directly to the database.
+3. **Multi-device identity and security.** Build on the server-backed design
+   with secure remote sessions, account recovery, device-aware sign-in, and
+   server-enforced roles, invitations, moderation, and progress synchronization.
+
 ## Refactoring
 
 ### Completed
@@ -195,40 +231,7 @@ index with `git rm --cached`.
   editor/moderation choices import it rather than maintaining independent
   lists.
 
-### Next refactoring candidates
-
-1. **Re-evaluate SQLite only when required.** JSON storage is suitable for the
-   current small local-data application. Do not add a database merely for
-   architecture's sake.
-
-## New features to implement
-
-1. **Expand identity features.** Login, registration, guest mode, per-account
-   theme/language preferences, role-based editor access, and local salted
-   password hashes, and personal learning statistics exist. Administrative
-   user management and multi-device security do not.
-2. **Optional testing-mode history.** Keep all quiz questions available and
-   persist completed attempts per user, including best/latest score and attempt
-   count. This is intentionally separate from learning-mode mastery, because
-   showing the correct answer before manually marking a question learned is
-   useful for study but would distort a formal test result.
-
-## Project milestones
-
-1. **Screenshots:** add representative light- and dark-theme screenshots to
-   the README, covering the launcher, study views, editor, progress, and
-   moderation screens.
-2. **Requirements and dependencies:** maintain a clear production dependency
-   list and a separate development/test dependency list, with installation
-   instructions that match them.
-3. **Git history:** continue creating small, descriptive commits for completed
-   changes and push the history to the GitHub repository.
-4. **CI/CD:** add a GitHub Actions workflow that installs dependencies and runs
-   the off-screen PyQt test suite for every push and pull request.
-5. **Database:** reassess the JSON storage model once shared users, classes,
-   invitations, or larger data volumes require stronger querying and
-   concurrent-write support. SQLite is the likely first migration target, not
-   an immediate requirement.
+## Implemented features
 
 ### Implemented: deck progress and reset
 

@@ -7,7 +7,7 @@
             "password": "pbkdf2_sha256$210000$1c53269189d57135786300bd74209b98$de49130da22faefb90f6467745d6ab19e1792de205b42c5e84ebacaade7f4833",
             "name": "Admin User",
             "preferences": {
-                "theme": "light",
+                "theme": "dark",
                 "language": "en"
             },
             "status": "active",
