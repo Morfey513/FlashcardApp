@@ -2,7 +2,7 @@
 
 import logging
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLabel,
     QApplication, QStackedWidget, QMessageBox, QFrame
 )
 from PyQt6.QtCore import Qt
@@ -147,6 +147,9 @@ class MainLauncher(QWidget):
             self.login_dialog.signup_requested.connect(self.show_registration_dialog)
             self.login_dialog.setWindowModality(Qt.WindowModality.NonModal)
 
+        self.login_dialog.clear_error()
+        self.login_dialog.clear_password()
+
         # Position in center
         self.login_dialog.move(
             self.x() + (self.width() - self.login_dialog.width()) // 2,
@@ -200,6 +203,10 @@ class MainLauncher(QWidget):
         else:
             if self.login_dialog:
                 self.login_dialog.show_error(message)
+                # A failed non-modal attempt must remain visible and focused.
+                self.login_dialog.show()
+                self.login_dialog.raise_()
+                self.login_dialog.activateWindow()
                 if message.startswith("Account suspended."):
                     reason = message.removeprefix("Account suspended. Reason: ")
                     AccountSuspensionDialog(reason, self.login_dialog).exec()
@@ -254,8 +261,19 @@ class MainLauncher(QWidget):
 
         self.login_btn.setVisible(is_guest)
         self.logout_btn.setVisible(not is_guest)
-        self.editor_btn.setVisible(self.controller.can_access_editor())
-        self.moderation_btn.setVisible(role == "admin")
+        can_edit = self.controller.can_access_editor()
+        self.quiz_editor_btn.setVisible(can_edit)
+        self.flashcard_editor_btn.setVisible(can_edit)
+        # A single, role-specific full-width management action prevents two
+        # hidden buttons from sharing one grid cell (which caused artefacts in
+        # the dark stylesheet).
+        self.role_action_btn.setVisible(role in {"teacher", "admin"})
+        if role == "teacher":
+            self.role_action_btn.setText("🏫 My Classes / Roster")
+            self.role_action_btn.setProperty("role_action", "classes")
+        elif role == "admin":
+            self.role_action_btn.setText(t.t('main_window.btn_moderation'))
+            self.role_action_btn.setProperty("role_action", "moderation")
         is_student = role == "student"
         # Students already have My Progress in their compact launcher.
         self.profile_btn.setVisible(not is_guest and not is_student)
@@ -264,7 +282,7 @@ class MainLauncher(QWidget):
         self.study_label.setVisible(not is_guest and not is_student)
         self.study_row.setVisible(not is_guest and not is_student)
         self.quit_btn.setVisible(not is_guest and not is_student)
-        show_management = self.controller.can_access_editor() or role == "admin"
+        show_management = can_edit or role == "admin"
         self.management_label.setVisible(show_management)
         self.management_divider.setVisible(show_management)
         self.management_row.setVisible(show_management)
@@ -392,18 +410,24 @@ class MainLauncher(QWidget):
         layout.addWidget(self.management_label)
 
         self.management_row = QWidget()
-        management_layout = QHBoxLayout(self.management_row)
+        management_layout = QGridLayout(self.management_row)
         management_layout.setContentsMargins(0, 0, 0, 0)
         management_layout.setSpacing(20)
-        self.editor_btn = QPushButton()
-        self.editor_btn.clicked.connect(self.open_editor_selection)
-        self.editor_btn.hide()
-        management_layout.addWidget(self.editor_btn)
 
-        self.moderation_btn = QPushButton("Moderation")
-        self.moderation_btn.clicked.connect(self.open_moderation)
-        self.moderation_btn.hide()
-        management_layout.addWidget(self.moderation_btn)
+        self.quiz_editor_btn = QPushButton()
+        self.quiz_editor_btn.clicked.connect(self.open_quiz_editor)
+        self.quiz_editor_btn.hide()
+        management_layout.addWidget(self.quiz_editor_btn, 0, 0)
+
+        self.flashcard_editor_btn = QPushButton()
+        self.flashcard_editor_btn.clicked.connect(self.open_flashcard_editor)
+        self.flashcard_editor_btn.hide()
+        management_layout.addWidget(self.flashcard_editor_btn, 0, 1)
+
+        self.role_action_btn = QPushButton()
+        self.role_action_btn.clicked.connect(self.open_role_management)
+        self.role_action_btn.hide()
+        management_layout.addWidget(self.role_action_btn, 1, 0, 1, 2)
         layout.addWidget(self.management_row)
 
         layout.addSpacing(20)
@@ -449,13 +473,13 @@ class MainLauncher(QWidget):
 
         layout.addSpacing(20)
 
-        self.quiz_editor_btn = QPushButton()
-        self.quiz_editor_btn.clicked.connect(self.open_quiz_editor)
-        layout.addWidget(self.quiz_editor_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.editor_panel_quiz_btn = QPushButton()
+        self.editor_panel_quiz_btn.clicked.connect(self.open_quiz_editor)
+        layout.addWidget(self.editor_panel_quiz_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        self.flashcard_editor_btn = QPushButton()
-        self.flashcard_editor_btn.clicked.connect(self.open_flashcard_editor)
-        layout.addWidget(self.flashcard_editor_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.editor_panel_flashcard_btn = QPushButton()
+        self.editor_panel_flashcard_btn.clicked.connect(self.open_flashcard_editor)
+        layout.addWidget(self.editor_panel_flashcard_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         layout.addSpacing(20)
 
@@ -655,14 +679,14 @@ class MainLauncher(QWidget):
         self.student_progress_btn.setText(t.t('main_window.btn_my_progress'))
         self.student_quit_btn.setText(t.t('common.btn_quit'))
         self.profile_btn.setText(t.t('main_window.btn_my_progress'))
-        self.editor_btn.setText(t.t('main_window.btn_editor_mode'))
-        self.moderation_btn.setText(t.t('main_window.btn_moderation'))
         self.quit_btn.setText(t.t('common.btn_quit'))
 
         self.editor_title_label.setText(t.t('editor_selection.title'))
         self.editor_subtitle_label.setText(t.t('editor_selection.subtitle'))
         self.quiz_editor_btn.setText(t.t('editor_selection.btn_quiz_editor'))
         self.flashcard_editor_btn.setText(t.t('editor_selection.btn_flashcard_editor'))
+        self.editor_panel_quiz_btn.setText(t.t('editor_selection.btn_quiz_editor'))
+        self.editor_panel_flashcard_btn.setText(t.t('editor_selection.btn_flashcard_editor'))
         self.back_btn.setText(t.t('common.btn_back'))
 
         # 2. Update the "Kids" (Sub-components)
@@ -762,10 +786,28 @@ class MainLauncher(QWidget):
         self._launch_sub_window(FlashcardViewer, controller)
 
     def open_moderation(self):
-        if self.controller.get_current_role() != "admin":
+        role = self.controller.get_current_role()
+        if role != "admin":
             return
         from src.ui.moderation_dialog import ModerationDialog
-        ModerationDialog(self.controller.get_current_user_id(), self).exec()
+        ModerationDialog(self.controller.get_current_user_id(), role, self).exec()
+
+    def open_role_management(self):
+        """Route the one management action shown for the current role."""
+        if self.role_action_btn.property("role_action") == "classes":
+            self.open_my_classes()
+        else:
+            self.open_moderation()
+
+    def open_my_classes(self):
+        """Open the current teacher/admin's own class roster directly."""
+        role = self.controller.get_current_role()
+        if role != "teacher":
+            return
+        from src.ui.moderation_dialog import ModerationDialog
+        ModerationDialog(
+            self.controller.get_current_user_id(), role, self, initial_tab="classes"
+        ).exec()
 
     def open_flashcard_editor(self):
         from src.ui.editor.flashcard_editor import FlashcardEditor

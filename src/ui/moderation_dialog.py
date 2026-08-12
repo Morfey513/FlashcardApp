@@ -2,12 +2,13 @@ from html import escape
 
 from pathlib import Path
 
-from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QInputDialog, QTabWidget, QWidget, QTreeWidget, QTreeWidgetItem, QSplitter, QFrame, QScrollArea
-from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QColor, QPixmap
+from PyQt6.QtWidgets import QApplication, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QInputDialog, QTabWidget, QWidget, QTreeWidget, QTreeWidgetItem, QSplitter, QFrame, QScrollArea, QMessageBox, QSizePolicy, QToolTip
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QColor, QCursor, QPixmap
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 
 from src.storage.moderation_repository import ModerationRepository
+from src.storage.invitation_repository import InvitationRepository
 from src.logic.access_control import (
     CONTENT_STATUSES,
     CONTENT_STATUS_LABELS,
@@ -16,7 +17,7 @@ from src.logic.access_control import (
     VISIBILITIES,
     VISIBILITY_LABELS,
 )
-from src.ui.auto_scroll import AutoScrollTextBrowser
+from src.ui.auto_scroll import AutoScrollArea, AutoScrollTextBrowser
 from src.utils.paths import resolve_stored_path
 
 
@@ -102,6 +103,19 @@ class ImagePreviewDialog(QDialog):
         self.image.resize(pixmap.size())
 
 
+class ClassRosterHeader(QFrame):
+    """Compact clickable header; child code button remains independently usable."""
+
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class ModerationDialog(QDialog):
     # Calm semantic colors shared by content lifecycle and account states.
     STATUS_COLORS = {
@@ -112,21 +126,80 @@ class ModerationDialog(QDialog):
         "banned": ("#FEE2E2", "#B91C1C"),
         "active": ("#DCFCE7", "#15803D"),
     }
-    def __init__(self, actor_id, parent=None):
+    ROSTER_PAGE_SIZE = 50
+    def __init__(self, actor_id, role="admin", parent=None, initial_tab=None):
         super().__init__(parent)
         self.actor_id = actor_id
+        self.role = role
         self.repo = ModerationRepository()
+        self.invites = InvitationRepository(self.repo)
+        self._class_expanded = {}
+        self._class_visible_limits = {}
         self.audio_output = QAudioOutput(self)
         self.audio_player = QMediaPlayer(self)
         self.audio_player.setAudioOutput(self.audio_output)
         self.setWindowTitle("Moderation")
-        self.resize(720, 560)
+        # Class management has a much simpler, single-pane layout than the
+        # administrator dashboard.  A compact default leaves less empty space
+        # while the roster itself remains scrollable for larger classes.
+        self.resize(900, 480) if role == "teacher" else self.resize(1100, 560)
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
-        self._build_content_tab()
-        self._build_users_tab()
+        if self.role == "admin":
+            self._build_content_tab()
+            self._build_users_tab()
+        elif self.role == "teacher":
+            self._build_classes_tab()
         self.refresh()
+        if initial_tab == "classes":
+            for index in range(self.tabs.count()):
+                if self.tabs.tabText(index) == "My Classes":
+                    self.tabs.setCurrentIndex(index)
+                    break
+
+    def _build_classes_tab(self):
+        """Teacher-only roster view for the teacher's active Class-Only items."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        title = QLabel("CLASS MANAGEMENT")
+        title.setObjectName("moderation_detail_title")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+        self.class_summary_label = QLabel()
+        self.class_summary_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.class_summary_label)
+
+        filters = QHBoxLayout()
+        self.class_search = QLineEdit()
+        self.class_search.setPlaceholderText("Search student or quiz/deck…")
+        self.class_search.textChanged.connect(self._refresh_classes)
+        filters.addWidget(self.class_search, 1)
+        self.class_type_filter = QComboBox()
+        self.class_type_filter.addItem("All Class-Only Content", "all")
+        self.class_type_filter.addItem("Quizzes Only", "quiz")
+        self.class_type_filter.addItem("Flashcards Only", "flashcard")
+        self.class_type_filter.currentIndexChanged.connect(self._refresh_classes)
+        filters.addWidget(self.class_type_filter)
+        clear = QPushButton("Clear")
+        clear.setFixedSize(90, 34)
+        clear.clicked.connect(self._clear_class_filters)
+        filters.addWidget(clear)
+        layout.addLayout(filters)
+
+        self.class_scroll = AutoScrollArea()
+        self.class_scroll.setWidgetResizable(True)
+        self.class_scroll.setObjectName("class_roster_scroll")
+        self.class_scroll.setToolTip("Middle-click to auto-scroll; press Escape to stop")
+        self.class_content = QWidget()
+        self.class_cards_layout = QVBoxLayout(self.class_content)
+        self.class_cards_layout.setContentsMargins(6, 6, 6, 6)
+        self.class_cards_layout.setSpacing(12)
+        self.class_cards_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.class_scroll.setWidget(self.class_content)
+        self.class_content.installEventFilter(self.class_scroll)
+        layout.addWidget(self.class_scroll, 1)
+        self.tabs.addTab(tab, "My Classes")
 
     def _build_content_tab(self):
         tab = QWidget()
@@ -250,6 +323,13 @@ class ModerationDialog(QDialog):
         self.tabs.addTab(tab, "Users")
 
     def refresh(self):
+        from src.storage.user_repository import UserRepository
+        self.user_data = UserRepository().get_all_users()
+        self.users_by_id = {str(user["id"]): user for user in self.user_data}
+        if self.role == "teacher":
+            self._refresh_classes()
+            return
+
         self.content = [
             item for item in self.repo.get_all_content()
             if item["status"] == "pending_review"
@@ -259,8 +339,6 @@ class ModerationDialog(QDialog):
             icon = "📝" if item["kind"] == "quiz" else "🎴"
             self.items.addItem(f"{icon} {item['name']}")
         self._show_content_detail(self.items.currentRow())
-        from src.storage.user_repository import UserRepository
-        self.user_data = UserRepository().get_all_users()
         self.users.clear()
         for user in self.user_data:
             banned_at = user.get("banned_at") or "—"
@@ -277,9 +355,202 @@ class ModerationDialog(QDialog):
             row.setForeground(2, QColor(foreground))
             row.setData(0, Qt.ItemDataRole.UserRole, user)
             self.users.addTopLevelItem(row)
-        self.users_by_id = {str(user["id"]): user for user in self.user_data}
         self._sync_selected_user_role(self.users.currentItem())
         self._refresh_content()
+        self._refresh_classes()
+
+    def _clear_class_filters(self):
+        self.class_search.clear()
+        self.class_type_filter.setCurrentIndex(0)
+
+    def _refresh_classes(self):
+        """Render cards after filtering titles and enrolled student logins."""
+        if not hasattr(self, "class_cards_layout"):
+            return
+        kind = self.class_type_filter.currentData()
+        search = self.class_search.text().strip().casefold()
+        classes = self.invites.get_owned_classes(self.actor_id, kind)
+        total_enrolled = sum(len(item["roster"]) for item in classes)
+        self.class_summary_label.setText(
+            f"Total enrolled: {total_enrolled}  |  Active Class-Only items: {len(classes)}"
+        )
+        while self.class_cards_layout.count():
+            child = self.class_cards_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        filtered = []
+        for item in classes:
+            student_names = [
+                self.users_by_id.get(row["user_id"], {}).get("login", row["user_id"])
+                for row in item["roster"]
+            ]
+            haystack = " ".join([item["name"], *student_names]).casefold()
+            if not search or search in haystack:
+                filtered.append(item)
+                self.class_cards_layout.addWidget(self._class_card(item))
+        if not filtered:
+            empty = QLabel("No active Class-Only quizzes or decks match this filter.")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.class_cards_layout.addWidget(empty)
+
+    def _class_card(self, item):
+        card = QFrame()
+        card.setObjectName("class_roster_card")
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(8)
+
+        header_widget = ClassRosterHeader()
+        header_widget.setObjectName("class_roster_header")
+        header_widget.setFixedHeight(42)
+        header_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        header = QHBoxLayout(header_widget)
+        header.setContentsMargins(10, 5, 10, 5)
+        header.setSpacing(12)
+        icon = "📝" if item["kind"] == "quiz" else "🃏"
+        item_id = f"{item['kind']}:{item['file']}"
+        expanded = self._class_expanded.get(item_id, False) or bool(self.class_search.text().strip())
+        title = QLabel(f"{icon}  {item['name']}")
+        title.setObjectName("editor_row_label")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.addWidget(title, 1)
+        tag = QLabel("Class-Only")
+        tag.setObjectName("editor_status")
+        header.addWidget(tag)
+        count = QLabel(f"{len(item['roster'])} Students Enrolled")
+        header.addWidget(count)
+        code_button = QPushButton("🔑 Code")
+        code_button.setEnabled(bool(item.get("invite_code")))
+        code_button.setToolTip("Copy invitation code")
+        code_button.setObjectName("class_code_button")
+        code_button.setFixedSize(88, 28)
+        code_button.clicked.connect(lambda _=False, value=item.get("invite_code", ""): self._copy_class_code(value))
+        header.addWidget(code_button)
+        expand = QLabel("▲" if expanded else "▼")
+        expand.setObjectName("inline_action")
+        expand.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        expand.setFixedSize(28, 28)
+        header.addWidget(expand)
+        layout.addWidget(header_widget)
+
+        roster = QTreeWidget()
+        roster.setObjectName("class_roster_table")
+        roster.setColumnCount(4)
+        roster.setHeaderLabels(["Student", "Progress", "Mastery status", "Action"])
+        roster.setRootIsDecorated(False)
+        roster.setAlternatingRowColors(True)
+        roster.setSelectionMode(QTreeWidget.SelectionMode.NoSelection)
+        roster.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        roster.setColumnWidth(0, 190)
+        roster.setColumnWidth(1, 115)
+        roster.setColumnWidth(2, 170)
+        # Reserve the remaining row width for the action area instead of
+        # leaving an unassigned blank strip at the right of the table.
+        roster.header().setStretchLastSection(True)
+        limit = self._class_visible_limits.get(item_id, self.ROSTER_PAGE_SIZE)
+        visible_students = item["roster"][:limit]
+        for student in visible_students:
+            user = self.users_by_id.get(student["user_id"], {})
+            login = user.get("login", student["user_id"])
+            mastered, total, percent = student["mastered"], student["total"], student["percent"]
+            if total and mastered == total:
+                status = "● 100% Mastered"
+            elif mastered:
+                status = f"● {percent}% In Progress"
+            else:
+                status = "● 0% Not Started"
+            row = QTreeWidgetItem([login, f"{mastered} / {total}", status, ""])
+            color = "#15803D" if total and mastered == total else "#B45309" if mastered else "#B91C1C"
+            row.setForeground(2, QColor(color))
+            roster.addTopLevelItem(row)
+            remove = QPushButton("Remove")
+            # Use the same restrained outlined-danger treatment as the
+            # per-item Reset action in My Progress.
+            remove.setObjectName("profile_reset_btn")
+            remove.setFixedSize(88, 32)
+            remove.clicked.connect(
+                lambda _=False, content=item, student_id=student["user_id"], user_login=login:
+                self._confirm_remove_student(content, student_id, user_login)
+            )
+            # QTreeWidget expands a bare item-widget to fill the whole row.
+            # Wrap the control to preserve its compact size and give adjacent
+            # Remove buttons clear vertical breathing room.
+            remove_cell = QFrame()
+            remove_cell.setObjectName("class_remove_cell")
+            remove_layout = QHBoxLayout(remove_cell)
+            remove_layout.setContentsMargins(12, 8, 12, 8)
+            remove_layout.addWidget(remove, 0, Qt.AlignmentFlag.AlignCenter)
+            roster.setItemWidget(row, 3, remove_cell)
+        roster.setVisible(expanded)
+        roster.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Let the outer Class Management scroll area handle long rosters.
+        # A page is up to 50 rows, matching My Progress rather than hiding
+        # students inside a tiny nested table scroll area.
+        # QSS controls the final header/item metrics (the dark theme rows are
+        # taller than the light theme), so calculate the space from Qt rather
+        # than relying on a guessed pixel height.  This keeps every student in
+        # the current 50-person page visible in either theme.
+        header_height = max(28, roster.header().sizeHint().height())
+        row_height = max(32, roster.sizeHintForRow(0))
+        frame_height = roster.frameWidth() * 2
+        roster.setFixedHeight(
+            header_height + max(1, len(visible_students)) * row_height + frame_height + 4
+        )
+        layout.addWidget(roster)
+
+        if len(item["roster"]) > limit:
+            more = QPushButton(f"Show {min(self.ROSTER_PAGE_SIZE, len(item['roster']) - limit)} more students")
+            more.setObjectName("profile_show_more")
+            more.setVisible(expanded)
+            more.clicked.connect(lambda _=False, key=item_id: self._show_more_students(key))
+            layout.addWidget(more)
+        else:
+            more = None
+
+        def toggle():
+            roster.setVisible(not roster.isVisible())
+            expand.setText("▲" if roster.isVisible() else "▼")
+            self._class_expanded[item_id] = roster.isVisible()
+            if more:
+                more.setVisible(roster.isVisible())
+
+        header_widget.clicked.connect(toggle)
+        return card
+
+    def _show_more_students(self, item_id):
+        self._class_visible_limits[item_id] = (
+            self._class_visible_limits.get(item_id, self.ROSTER_PAGE_SIZE) + self.ROSTER_PAGE_SIZE
+        )
+        self._class_expanded[item_id] = True
+        self._refresh_classes()
+
+    @staticmethod
+    def _class_progress_summary(item):
+        return item
+
+    def _copy_class_code(self, code):
+        if not code:
+            return
+        QApplication.clipboard().setText(code)
+        QToolTip.showText(QCursor.pos(), f"Code {code} copied!", self)
+
+    def _confirm_remove_student(self, item, student_id, login):
+        answer = QMessageBox.question(
+            self,
+            "Remove class access",
+            f"Remove {login} from {item['name']}? They will no longer be able to open this item.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        success, message = self.invites.remove_enrollment(
+            item["file"], item["kind"], self.actor_id, student_id
+        )
+        if not success:
+            QMessageBox.warning(self, "Remove access", message)
+        self._refresh_classes()
 
     def _sync_selected_user_role(self, row):
         """Keep the role selector aligned with the selected account."""

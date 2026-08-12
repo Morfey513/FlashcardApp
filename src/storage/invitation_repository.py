@@ -71,6 +71,55 @@ class InvitationRepository:
             return True, f"You are {state} {item['name']}."
         return False, "That invitation code was not found."
 
+    def get_owned_classes(self, owner_id, kind="all"):
+        """Return active Class-Only items owned by one teacher with roster stats."""
+        classes = []
+        for item in self.moderation.get_all_content():
+            if str(item.get("owner_id")) != str(owner_id):
+                continue
+            if kind != "all" and item["kind"] != kind:
+                continue
+            # Draft, pending, rejected, and banned content cannot grant access.
+            if item.get("status") != "published" or item.get("visibility") != "class_only":
+                continue
+            data = self._read_data(item)
+            metadata = self._metadata(data)
+            roster = []
+            for user_id, enrollment in metadata.get("enrollments", {}).items():
+                summary = self._progress_summary(item, user_id)
+                roster.append({
+                    "user_id": str(user_id),
+                    "enrolled_at": enrollment.get("enrolled_at", "") if isinstance(enrollment, dict) else "",
+                    **summary,
+                })
+            classes.append({
+                **item,
+                "invite_code": metadata.get("invite", {}).get("code", ""),
+                "roster": roster,
+            })
+        return classes
+
+    def remove_enrollment(self, relative_path, kind, owner_id, student_id):
+        """Remove one learner from an owner's active Class-Only item."""
+        item = self._find_item(relative_path, kind)
+        if not item or str(item.get("owner_id")) != str(owner_id):
+            return False, "Only the content owner can remove enrolled students."
+        data = self._read_data(item)
+        metadata = self._metadata(data)
+        if metadata.get("status") != "published" or metadata.get("visibility") != "class_only":
+            return False, "Access can only be managed for published Class-Only content."
+        student_id = str(student_id)
+        if student_id not in metadata.get("enrollments", {}):
+            return False, "That student is not enrolled in this item."
+        metadata["enrollments"].pop(student_id, None)
+        metadata["allowed_user_ids"] = [
+            value for value in metadata.get("allowed_user_ids", [])
+            if str(value) != student_id
+        ]
+        data["moderation"] = metadata
+        self._write_data(item, data)
+        return True, "Student access removed."
+
     def _new_unique_code(self, title):
         prefix = "".join(character for character in title.upper() if character in self.ALPHABET)[:4]
         prefix = prefix or "CLASS"
@@ -82,6 +131,12 @@ class InvitationRepository:
             code = f"{prefix}-{''.join(secrets.choice(self.ALPHABET) for _ in range(4))}"
             if self.normalize_code(code) not in existing:
                 return code
+
+    def _progress_summary(self, item, user_id):
+        repo = self.moderation.flashcards if item["kind"] == "flashcard" else self.moderation.quizzes
+        if item["kind"] == "flashcard":
+            return repo.get_deck_progress_summary(item["file"], user_id)
+        return repo.get_quiz_progress_summary(item["file"], user_id)
 
     def _find_item(self, relative_path, kind):
         return next(

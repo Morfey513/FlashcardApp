@@ -93,11 +93,17 @@ class LoginDialog(QDialog):
         self.guest_btn = QPushButton()
         self.guest_btn.setObjectName("login_link")
         self.guest_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        # A link must never become the dialog's implicit Enter action. Without
+        # this, pressing Enter in the password field can also activate Guest.
+        self.guest_btn.setAutoDefault(False)
+        self.guest_btn.setDefault(False)
         self.guest_btn.clicked.connect(self.handle_guest)
 
         self.signup_btn = QPushButton()
         self.signup_btn.setObjectName("login_link")
         self.signup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.signup_btn.setAutoDefault(False)
+        self.signup_btn.setDefault(False)
         self.signup_btn.clicked.connect(self.signup_requested)
 
         links_layout.addWidget(self.guest_btn)
@@ -148,6 +154,11 @@ class LoginDialog(QDialog):
     def clear_password(self):
         """Do not retain credentials after the dialog is closed or reused."""
         self.password_input.clear()
+
+    def clear_error(self):
+        """Reset an old authentication error before showing a fresh dialog."""
+        self.error_label.clear()
+        self.error_label.hide()
 
     def show_error(self, message: str):
         """Display error message."""

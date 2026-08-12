@@ -1072,3 +1072,25 @@ QFrame#invite_code_toolbar {
     border-radius: 7px;
     padding: 4px;
 }
+
+QFrame#class_roster_card {
+    background-color: #263548;
+    border: 1px solid #40536b;
+    border-radius: 8px;
+}
+
+QFrame#class_roster_header { border-radius: 6px; }
+QFrame#class_roster_header:hover { background-color: #334155; }
+QTreeWidget#class_roster_table::item:hover { background-color: transparent; color: #e0e0e0; }
+QTreeWidget#class_roster_table::item:selected { background-color: transparent; color: #e0e0e0; }
+QPushButton#class_code_button { min-width: 0; padding: 4px 8px; }
+QFrame#class_remove_cell { background-color: transparent; border: none; }
+
+QPushButton#ghost_danger {
+    color: #fca5a5;
+    background: transparent;
+    border: 1px solid #ef4444;
+    border-radius: 5px;
+    padding: 5px 12px;
+}
+QPushButton#ghost_danger:hover { background-color: rgba(239, 68, 68, 0.18); }

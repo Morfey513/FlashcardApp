@@ -52,6 +52,9 @@ centralizes filesystem locations and shared configuration.
   code, and copy that code from the editor. Signed-in learners can join a
   published Class-Only quiz or deck from either study menu; rotating a code
   blocks new uses of the old code without removing existing enrolments.
+- Teachers have a Class Management view for their active Class-Only quizzes
+  and decks. It shows enrolled students, per-item mastery totals, invitation
+  code copy controls, and a confirmed remove-access action.
 - Theme and language preferences persist separately for guest mode and each
   signed-in account. Changing language refreshes the main window, settings
   panel, login dialog, and registration dialog without restarting.
@@ -140,6 +143,24 @@ Install the development dependency and use the project test runner:
 The runner prints the result and appends the complete output to
 `logs/test_results.log`.
 
+### Test approach
+
+- **pytest unit tests** cover learning logic, grading, repositories, media
+  storage, index recovery, authentication/session rules, content moderation,
+  and UI-component behaviour that can run off-screen.
+- **Fixtures:** pytest's built-in `tmp_path` fixture gives every repository
+  test a clean temporary JSON/data directory, so tests never modify the
+  project's sample content or a user's saved progress.
+- **Local integration coverage:** invitation tests combine the moderation,
+  invitation, selector-access, progress, and roster repositories in one
+  temporary data setup. They verify owner-only code control, invalid and
+  rotated/revoked codes, enrollment removal, and that draft, banned, or
+  unpublished content cannot be enrolled in or shown in an active roster.
+- **Mocking:** the current application has no remote services, clock, or
+  network boundary to mock. When server-backed identity or multi-device
+  support is introduced, HTTP/database clients should be mocked in unit tests
+  and covered by separate server integration tests.
+
 ## Version-control notes
 
 The repository keeps sample content, media, language files, and the test
@@ -166,7 +187,8 @@ index with `git rm --cached`.
   containing its JSON and copied media. Deck progress is stored alongside the
   deck in a separate file for each user.
 - **Test coverage:** logic, grading, paths, repositories, index recovery,
-  media import, CRUD, and user progress isolation are covered by pytest.
+  media import, CRUD, user progress isolation, moderation, invitations, and
+  roster access rules are covered by pytest.
 - **Shared access definitions:** `src.logic.access_control` is the canonical
   source for roles, account states, content lifecycle states, visibility
   values, labels, and lifecycle transition rules. Storage validation and
@@ -190,13 +212,6 @@ index with `git rm --cached`.
    count. This is intentionally separate from learning-mode mastery, because
    showing the correct answer before manually marking a question learned is
    useful for study but would distort a formal test result.
-3. **Content invitation/reference codes.** Let an owner create and revoke a
-   code for a specific deck, quiz, or class-only collection. A learner can use
-   the code to enrol, without making the content public.
-4. **Teacher student-management tab.** Add a teacher-facing moderation/class
-   tab for managing the roster of their own private or class-only content.
-   This is intentionally limited to enrolment and access removal; only admins
-   retain global role, account-ban, and content-moderation powers.
 
 ## Project milestones
 
@@ -281,11 +296,12 @@ returned to draft for editing before it is resubmitted for review.
 Lifecycle is separate from visibility: **Draft (Private)** is creator-only,
 **Class-Only** is available to enrolled students via a locally stored invite
 code, and **Public** is available to all learners after approval. Class-Only
-content follows the same moderation submission path as Public content. Invite
-codes are deliberately stored in plain text in this offline prototype because
+content follows the same moderation submission path as Public content. Teachers
+can search their own active Class-Only items and enrolled learners, filter by
+content type, copy the active code, and remove a learner from a specific item.
+Invite codes are deliberately stored in plain text in this offline prototype because
 the owner must be able to view and copy them; a server-backed version should
-store only a hash. A teacher roster and per-student access removal remain
-planned features.
+store only a hash.
 
 In the editor, saving as **Draft** keeps work private (and returns edited
 published content to draft). The editor's **Visibility** selector chooses Draft (Private),
