@@ -5,10 +5,18 @@ from datetime import datetime, timezone
 
 from src.storage.flashcard_repository import FlashcardRepository
 from src.storage.quiz_repository import QuizRepository
+from src.logic.access_control import (
+    CONTENT_STATUSES,
+    VISIBILITIES,
+    default_visibility_for_status,
+    is_content_status,
+    is_visibility,
+)
 
 
 class ModerationRepository:
-    STATUSES = {"draft", "pending_review", "published", "rejected", "banned"}
+    STATUSES = set(CONTENT_STATUSES)
+    VISIBILITIES = set(VISIBILITIES)
 
     def __init__(self, flashcards=None, quizzes=None):
         self.flashcards = flashcards or FlashcardRepository()
@@ -29,11 +37,15 @@ class ModerationRepository:
                 items.append({"kind": kind, "name": entry["name"], "file": entry["file"], "path": file, **metadata})
         return items
 
-    def update_status(self, item, status, actor_id, note=""):
-        if status not in self.STATUSES:
+    def update_status(self, item, status, actor_id, note="", visibility=None):
+        if not is_content_status(status):
+            return False
+        if visibility is not None and not is_visibility(visibility):
             return False
         data = json.loads(item["path"].read_text(encoding="utf-8"))
         metadata, _ = self._metadata(data)
+        if visibility is not None:
+            metadata["visibility"] = visibility
         metadata.update({"status": status, "reviewed_by": str(actor_id), "reviewed_at": self._now(), "review_note": note})
         data["moderation"] = metadata
         item["path"].write_text(json.dumps(data, indent=4), encoding="utf-8")
@@ -43,7 +55,7 @@ class ModerationRepository:
         history.write_text(json.dumps(entries, indent=4), encoding="utf-8")
         return True
 
-    def set_content_status(self, relative_path, kind, status, actor_id, note=""):
+    def set_content_status(self, relative_path, kind, status, actor_id, note="", visibility=None):
         """Set a lifecycle status from an editor without exposing file paths to UI."""
         item = next(
             (
@@ -52,7 +64,7 @@ class ModerationRepository:
             ),
             None,
         )
-        return bool(item and self.update_status(item, status, actor_id, note))
+        return bool(item and self.update_status(item, status, actor_id, note, visibility))
 
     def get_content_for_user(self, user_id, role):
         """Return only content that may be opened in a study session.
@@ -120,11 +132,14 @@ class ModerationRepository:
     def _metadata(data):
         metadata = data.setdefault("moderation", {})
         changed = False
-        defaults = {"owner_id": "legacy", "status": "published", "visibility": "public", "allowed_user_ids": [], "reviewed_by": None, "reviewed_at": None, "review_note": ""}
+        defaults = {"owner_id": "legacy", "status": "published", "allowed_user_ids": [], "reviewed_by": None, "reviewed_at": None, "review_note": ""}
         for key, value in defaults.items():
             if key not in metadata:
                 metadata[key] = value
                 changed = True
+        if "visibility" not in metadata:
+            metadata["visibility"] = default_visibility_for_status(metadata["status"])
+            changed = True
         return metadata, changed
 
     @staticmethod

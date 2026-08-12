@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional, Dict
 
 from src.config import USERS_FILE
+from src.logic.access_control import is_account_status, is_role
 
 logger = logging.getLogger(__name__)
 
@@ -153,12 +154,12 @@ class UserRepository:
         return False, "Unable to change password"
 
     def update_role(self, user_id: str, role: str) -> bool:
-        if role not in {"student", "teacher", "admin"}:
+        if not is_role(role):
             return False
         return self._update_account_field(user_id, "role", role)
 
     def update_status(self, user_id: str, status: str, reason: str = "") -> bool:
-        if status not in {"active", "banned"}:
+        if not is_account_status(status):
             return False
         try:
             data = self._read_users()

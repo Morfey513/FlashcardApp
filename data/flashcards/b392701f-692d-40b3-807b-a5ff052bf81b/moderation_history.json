@@ -22,5 +22,11 @@
         "action": "banned",
         "actor_id": "1",
         "note": "df"
+    },
+    {
+        "timestamp": "2026-08-12T00:58:11.419675+00:00",
+        "action": "draft",
+        "actor_id": "1",
+        "note": "Unbanned by an administrator. Edit the content and submit it for review again."
     }
 ]

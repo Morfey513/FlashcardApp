@@ -16,5 +16,11 @@
         "action": "banned",
         "actor_id": "1",
         "note": "zxc"
+    },
+    {
+        "timestamp": "2026-08-08T18:53:47.148021+00:00",
+        "action": "draft",
+        "actor_id": "1",
+        "note": "Unbanned by an administrator. Edit the content and submit it for review again."
     }
 ]

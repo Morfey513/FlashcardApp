@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from src.config import MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT
 from src.controllers.quiz_controller import QuizController
 from src.logic.translator import get_translator
+from src.ui.join_with_code_dialog import JoinWithCodeDialog
 
 logger = logging.getLogger(__name__)
 
@@ -115,8 +116,9 @@ class QuizViewer(QWidget):
         # Menu Panel
         self.menu_title_label.setText(t.t(f"{sec}.menu_title"))
         self.start_quiz_btn.setText(t.t(f"{sec}.btn_start_quiz"))
-        self.return_launcher_btn.setText(t.t(f"{sec}.btn_return_launcher"))
+        self.return_launcher_btn.setText("← " + t.t(f"{sec}.btn_return_launcher"))
         self.manage_progress_btn.setText(t.t(f"{sec}.btn_manage_progress"))
+        self.join_with_code_btn.setText("🔑 Join with Code")
         self.refresh_quiz_list()
 
         # Quiz Panel
@@ -256,6 +258,14 @@ class QuizViewer(QWidget):
         layout.setContentsMargins(50, 40, 50, 40)
         layout.setSpacing(20)
 
+        header = QHBoxLayout()
+        self.return_launcher_btn = QPushButton()
+        self.return_launcher_btn.setObjectName("mode_back_btn")
+        self.return_launcher_btn.clicked.connect(self.return_to_main)
+        header.addWidget(self.return_launcher_btn)
+        header.addStretch()
+        layout.addLayout(header)
+
         self.menu_title_label = QLabel()
         self.menu_title_label.setObjectName("title")
         layout.addWidget(self.menu_title_label, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -272,18 +282,29 @@ class QuizViewer(QWidget):
         self.start_quiz_btn = QPushButton()
         self.start_quiz_btn.setFixedSize(250, 60)
         self.start_quiz_btn.clicked.connect(self.start_quiz_from_selection)
-
-        self.return_launcher_btn = QPushButton()
-        self.return_launcher_btn.setObjectName("danger")
-        self.return_launcher_btn.setFixedSize(250, 60)
-        self.return_launcher_btn.clicked.connect(self.return_to_main)
+        self.join_with_code_btn = QPushButton()
+        self.join_with_code_btn.setFixedSize(250, 60)
+        self.join_with_code_btn.clicked.connect(self.join_with_code)
+        self.join_with_code_btn.setEnabled(self.controller.user_id != "guest")
+        if self.controller.user_id == "guest":
+            self.join_with_code_btn.setToolTip("Sign in to join class-only content.")
 
         btn_container.addWidget(self.manage_progress_btn)
-        btn_container.addStretch()
-        btn_container.addWidget(self.return_launcher_btn)
+        btn_container.addWidget(self.join_with_code_btn)
         btn_container.addWidget(self.start_quiz_btn)
         layout.addLayout(btn_container)
         self.stack.addWidget(self.menu_panel)
+
+    def join_with_code(self):
+        code = JoinWithCodeDialog.get_code(self)
+        if code is None:
+            return
+        success, message = self.controller.join_with_code(code)
+        if success:
+            self.refresh_quiz_list()
+            QMessageBox.information(self, "Enrollment complete", message)
+        else:
+            QMessageBox.warning(self, "Unable to enroll", message)
 
     def init_quiz_panel(self):
         self.quiz_panel = QFrame()

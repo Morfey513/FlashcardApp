@@ -14,11 +14,11 @@
     ],
     "moderation": {
         "owner_id": "4",
-        "status": "banned",
+        "status": "draft",
         "visibility": "public",
         "allowed_user_ids": [],
         "reviewed_by": "1",
-        "reviewed_at": "2026-08-08T13:55:57.717033+00:00",
-        "review_note": "df"
+        "reviewed_at": "2026-08-12T00:58:11.419675+00:00",
+        "review_note": "Unbanned by an administrator. Edit the content and submit it for review again."
     }
 }

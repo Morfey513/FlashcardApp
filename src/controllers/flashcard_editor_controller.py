@@ -5,6 +5,8 @@ import uuid
 from pathlib import Path
 from src.storage.flashcard_repository import FlashcardRepository
 from src.utils.paths import resolve_stored_path, to_stored_path
+from src.logic.access_control import is_visibility, visibility_submission_status
+from src.storage.invitation_repository import InvitationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +27,8 @@ class FlashcardEditorController:
         """Editable deck rows with their lifecycle status."""
         metadata = {item["file"]: item for item in self._moderation_items()}
         return [
-            {**deck, "status": metadata[deck["file"]]["status"]}
+            {**deck, "status": metadata[deck["file"]]["status"],
+             "visibility": metadata[deck["file"]].get("visibility", "private")}
             for deck in self._editable_decks()
         ]
 
@@ -36,6 +39,24 @@ class FlashcardEditorController:
             (item for item in self._moderation_items() if item["file"] == self.current_deck_info["file"]),
             {},
         )
+
+    def get_current_invite_code(self):
+        if not self.current_deck_info:
+            return ""
+        return InvitationRepository().get_invitation(
+            self.current_deck_info["file"], "flashcard"
+        ).get("code", "")
+
+    def generate_or_rotate_invite_code(self):
+        if not self.current_deck_info:
+            return False, "Open a deck before generating an invitation code."
+        return InvitationRepository().generate_or_rotate_code(
+            self.current_deck_info["file"], "flashcard", self.owner_id
+        )
+
+    def get_invite_code(self, name):
+        deck = next((item for item in self._editable_decks() if item["name"] == name), None)
+        return InvitationRepository().get_invitation(deck["file"], "flashcard").get("code", "") if deck else ""
 
     def create_deck(self, name):
         return self.repo.create_deck(name, owner_id=self.owner_id)
@@ -49,11 +70,13 @@ class FlashcardEditorController:
             return True
         return False
 
-    def save_deck(self, cards, submit_for_review=False):
-        """Save a draft, or save and submit it to the moderation queue."""
+    def save_deck(self, cards, visibility="private"):
+        """Save private work or submit public/class-only work for review."""
         try:
             if not self.current_deck_info:
                 logger.error("No deck loaded to save")
+                return False
+            if not is_visibility(visibility):
                 return False
 
             # 1. Ensure IDs exist (crucial for progress tracking)
@@ -65,9 +88,9 @@ class FlashcardEditorController:
             rel_path = self.current_deck_info["file"]
             self.repo.save_deck_content(rel_path, cards)
             from src.storage.moderation_repository import ModerationRepository
-            status = "pending_review" if submit_for_review else "draft"
+            status = visibility_submission_status(visibility)
             ModerationRepository(flashcards=self.repo).set_content_status(
-                rel_path, "flashcard", status, self.owner_id
+                rel_path, "flashcard", status, self.owner_id, visibility=visibility,
             )
 
             # 3. Progress Cleanup: Remove mastery data for cards that no longer exist

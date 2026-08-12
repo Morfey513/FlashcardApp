@@ -6,13 +6,14 @@ from functools import partial
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
     QListWidget, QListWidgetItem, QLineEdit, QScrollArea, QStackedLayout, QFrame,
-    QMessageBox, QTextEdit, QInputDialog, QFileDialog, QToolButton
+    QMessageBox, QTextEdit, QInputDialog, QFileDialog, QToolButton, QComboBox, QApplication, QToolTip
 )
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QPixmap, QCursor
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from src.config import AUDIO_DIR, IMAGE_DIR
 from src.controllers.flashcard_editor_controller import FlashcardEditorController
+from src.logic.access_control import VISIBILITIES, VISIBILITY_LABELS, default_visibility_for_status
 from src.logic.translator import get_translator
 
 logger = logging.getLogger(__name__)
@@ -60,8 +61,8 @@ class FlashcardEditor(QWidget):
         # Deck editor panel
         self.add_card_btn.setText("+ " + t.t(f"{sec}.btn_add_card"))
         self.back_to_menu_btn.setText(t.t(f"{sec}.btn_back_to_menu"))
-        self.save_deck_btn.setText("Save Draft")
-        self.publish_deck_btn.setText("Publish")
+        self.visibility_label.setText("Visibility:")
+        self.save_deck_btn.setText("Save Changes")
 
         # Card editor panel
         self.card_editor_title.setText(t.t(f"{sec}.card_editor_title"))
@@ -176,16 +177,37 @@ class FlashcardEditor(QWidget):
 
         nav_btn_layout.addStretch()
 
+        self.visibility_label = QLabel()
+        nav_btn_layout.addWidget(self.visibility_label)
+        self.visibility_selector = QComboBox()
+        for visibility in VISIBILITIES:
+            self.visibility_selector.addItem(VISIBILITY_LABELS[visibility], visibility)
+        self.visibility_selector.setToolTip(
+            "Draft is creator-only. Class-Only and Public are submitted for moderation."
+        )
+        self.visibility_selector.currentIndexChanged.connect(self._update_invite_code_toolbar)
+        nav_btn_layout.addWidget(self.visibility_selector)
+
         self.save_deck_btn = QPushButton()
+        self.save_deck_btn.setObjectName("publish_btn")
         self.save_deck_btn.clicked.connect(self.save_current_deck)
         nav_btn_layout.addWidget(self.save_deck_btn)
 
-        self.publish_deck_btn = QPushButton()
-        self.publish_deck_btn.setObjectName("publish_btn")
-        self.publish_deck_btn.clicked.connect(self.publish_current_deck)
-        nav_btn_layout.addWidget(self.publish_deck_btn)
-
         layout.addLayout(nav_btn_layout)
+        self.invite_toolbar = QFrame()
+        self.invite_toolbar.setObjectName("invite_code_toolbar")
+        invite_layout = QHBoxLayout(self.invite_toolbar)
+        self.invite_code_label = QLabel()
+        invite_layout.addWidget(self.invite_code_label)
+        invite_layout.addStretch()
+        self.copy_invite_btn = QPushButton("Copy Code")
+        self.copy_invite_btn.clicked.connect(self.copy_current_invite_code)
+        invite_layout.addWidget(self.copy_invite_btn)
+        self.rotate_invite_btn = QPushButton()
+        self.rotate_invite_btn.clicked.connect(self.generate_or_rotate_current_invite_code)
+        invite_layout.addWidget(self.rotate_invite_btn)
+        self.invite_toolbar.hide()
+        layout.addWidget(self.invite_toolbar)
 
         self.stack.addWidget(self.deck_editor_panel)
 
@@ -349,10 +371,10 @@ class FlashcardEditor(QWidget):
     def refresh_deck_list(self):
         self.deck_list.clear()
         for deck in self.controller.get_deck_entries():
-            self._add_deck_row(deck["name"], deck["status"])
+            self._add_deck_row(deck["name"], deck["status"], deck.get("visibility", "private"))
         self._sync_inline_selection(self.deck_list)
 
-    def _add_deck_row(self, name, status):
+    def _add_deck_row(self, name, status, visibility):
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, name)
         row = QWidget()
@@ -363,10 +385,17 @@ class FlashcardEditor(QWidget):
         label = QLabel(name)
         label.setObjectName("editor_row_label")
         layout.addWidget(label)
-        status_label = QLabel(f"[ {status.replace('_', ' ')} ]")
+        status_label = QLabel(f"[ {visibility.replace('_', ' ')} ]")
         status_label.setObjectName("editor_status")
         layout.addWidget(status_label)
         layout.addStretch()
+        if visibility == "class_only":
+            code_button = QToolButton()
+            code_button.setText("🔑")
+            code_button.setToolTip("Copy invitation code")
+            code_button.setObjectName("inline_action")
+            code_button.clicked.connect(lambda: self.copy_invite_code(name))
+            layout.addWidget(code_button)
         for icon, tooltip, action in (
             ("✏", "Edit", lambda: self.edit_deck_by_name(name)),
             ("⧉", "Copy", lambda: self.copy_deck_by_name(name)),
@@ -490,6 +519,9 @@ class FlashcardEditor(QWidget):
     def _update_moderation_banner(self):
         metadata = self.controller.get_current_moderation()
         status = metadata.get("status", "draft")
+        visibility = metadata.get("visibility", default_visibility_for_status(status))
+        self.visibility_selector.setCurrentIndex(max(0, self.visibility_selector.findData(visibility)))
+        self._update_invite_code_toolbar()
         reason = metadata.get("review_note", "").strip() or "No moderation reason was provided."
         self.current_content_banned = status == "banned"
         if status not in {"rejected", "banned"}:
@@ -503,8 +535,40 @@ class FlashcardEditor(QWidget):
             self.moderation_banner.show()
             self.moderation_banner.style().unpolish(self.moderation_banner)
             self.moderation_banner.style().polish(self.moderation_banner)
-        for widget in (self.add_card_btn, self.card_list, self.save_deck_btn, self.publish_deck_btn):
+        for widget in (self.add_card_btn, self.card_list, self.visibility_selector, self.save_deck_btn):
             widget.setEnabled(not self.current_content_banned)
+
+    def _update_invite_code_toolbar(self):
+        class_only = self.visibility_selector.currentData() == "class_only"
+        self.invite_toolbar.setVisible(class_only and not self.current_content_banned)
+        if not class_only:
+            return
+        code = self.controller.get_current_invite_code()
+        self.invite_code_label.setText(f"🔑 Active Code: {code}" if code else "🔑 No code generated yet")
+        self.copy_invite_btn.setEnabled(bool(code))
+        self.rotate_invite_btn.setText("Rotate Code" if code else "Generate Code")
+
+    def copy_invite_code(self, name):
+        code = self.controller.get_invite_code(name)
+        if not code:
+            QMessageBox.information(self, "No invitation code", "Set this deck to Class-Only, then generate a code in its editor.")
+            return
+        QApplication.clipboard().setText(code)
+        QToolTip.showText(QCursor.pos(), f"Code {code} copied!", self)
+
+    def copy_current_invite_code(self):
+        code = self.controller.get_current_invite_code()
+        if code:
+            QApplication.clipboard().setText(code)
+            QToolTip.showText(QCursor.pos(), f"Code {code} copied!", self)
+
+    def generate_or_rotate_current_invite_code(self):
+        success, value = self.controller.generate_or_rotate_invite_code()
+        if success:
+            self._update_invite_code_toolbar()
+            QToolTip.showText(QCursor.pos(), f"Code {value} ready to share.", self)
+        else:
+            QMessageBox.warning(self, "Invitation code", value)
 
     def refresh_card_list(self):
         self.card_list.clear()
@@ -541,12 +605,18 @@ class FlashcardEditor(QWidget):
         sec = "flashcard_editor"
         logger.info("ACTION: Saving deck changes.")
 
-        if self.controller.save_deck(self.current_editing_cards):
+        visibility = self.visibility_selector.currentData()
+        if self.controller.save_deck(self.current_editing_cards, visibility=visibility):
             self.has_unsaved_changes = False
+            message = (
+                "Deck saved as a private draft."
+                if visibility == "private"
+                else "Deck submitted for moderation."
+            )
             QMessageBox.information(
                 self,
                 t.t(f"{sec}.msg_success_title"),
-                t.t(f"{sec}.msg_deck_saved")
+                message,
             )
             return True
 
@@ -558,15 +628,9 @@ class FlashcardEditor(QWidget):
         return False
 
     def publish_current_deck(self):
-        """Persist deck edits and submit this version for admin review."""
-        t = self.translator
-        sec = "flashcard_editor"
-        if self.controller.save_deck(self.current_editing_cards, submit_for_review=True):
-            self.has_unsaved_changes = False
-            QMessageBox.information(self, t.t(f"{sec}.msg_success_title"), "Deck submitted for moderation.")
-            return True
-        QMessageBox.critical(self, t.t(f"{sec}.msg_error_title"), t.t(f"{sec}.msg_save_failed"))
-        return False
+        """Backward-compatible programmatic shortcut for public submission."""
+        self.visibility_selector.setCurrentIndex(self.visibility_selector.findData("public"))
+        return self.save_current_deck()
 
     def maybe_save_changes(self):
         """Unified check for unsaved changes."""

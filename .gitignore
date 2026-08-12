@@ -1,7 +1,24 @@
-# Created by venv; see https://docs.python.org/3/library/venv.html
+# Python environments, bytecode, and test output
 .venv/
+venv/
+env/
 .idea/
+.vscode/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Build and package output
+build/
+dist/
+*.egg-info/
+
+# Machine-specific runtime state
 logs/
 *.log
+data/settings.json
+data/flashcards/*/progress/*.json
+data/quizzes/*/progress/*.json

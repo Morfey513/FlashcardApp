@@ -95,7 +95,7 @@ class QuizRepository:
         moderation = None
         if owner_id is not None:
             moderation = {
-                "owner_id": str(owner_id), "status": "draft", "visibility": "public",
+                "owner_id": str(owner_id), "status": "draft", "visibility": "private",
                 "allowed_user_ids": [], "reviewed_by": None, "reviewed_at": None,
                 "review_note": "",
             }

@@ -5,12 +5,13 @@ import logging
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
     QListWidget, QListWidgetItem, QLineEdit, QScrollArea, QStackedLayout, QFrame,
-    QMessageBox, QComboBox, QTextEdit, QInputDialog, QFileDialog, QToolButton
+    QMessageBox, QComboBox, QTextEdit, QInputDialog, QFileDialog, QToolButton, QApplication, QToolTip
 )
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QPixmap, QCursor
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 
 from src.controllers.quiz_editor_controller import QuizEditorController
+from src.logic.access_control import VISIBILITIES, VISIBILITY_LABELS, default_visibility_for_status
 from src.logic.translator import get_translator
 
 logger = logging.getLogger(__name__)
@@ -61,8 +62,8 @@ class QuizEditor(QWidget):
         # Quiz editor panel
         self.add_question_btn.setText("+ " + t.t(f"{sec}.btn_add_question"))
         self.back_to_editor_btn.setText(t.t(f"{sec}.btn_back_to_menu"))
-        self.save_quiz_btn.setText("Save Draft")
-        self.publish_quiz_btn.setText("Publish")
+        self.visibility_label.setText("Visibility:")
+        self.save_quiz_btn.setText("Save Changes")
 
         # Question editor panel
         self.question_editor_title.setText(t.t(f"{sec}.question_editor_title"))
@@ -218,16 +219,37 @@ class QuizEditor(QWidget):
 
         nav_btn_layout.addStretch()
 
+        self.visibility_label = QLabel()
+        nav_btn_layout.addWidget(self.visibility_label)
+        self.visibility_selector = QComboBox()
+        for visibility in VISIBILITIES:
+            self.visibility_selector.addItem(VISIBILITY_LABELS[visibility], visibility)
+        self.visibility_selector.setToolTip(
+            "Draft is creator-only. Class-Only and Public are submitted for moderation."
+        )
+        self.visibility_selector.currentIndexChanged.connect(self._update_invite_code_toolbar)
+        nav_btn_layout.addWidget(self.visibility_selector)
+
         self.save_quiz_btn = QPushButton()
+        self.save_quiz_btn.setObjectName("publish_btn")
         self.save_quiz_btn.clicked.connect(self.save_current_quiz)
         nav_btn_layout.addWidget(self.save_quiz_btn)
 
-        self.publish_quiz_btn = QPushButton()
-        self.publish_quiz_btn.setObjectName("publish_btn")
-        self.publish_quiz_btn.clicked.connect(self.publish_current_quiz)
-        nav_btn_layout.addWidget(self.publish_quiz_btn)
-
         layout.addLayout(nav_btn_layout)
+        self.invite_toolbar = QFrame()
+        self.invite_toolbar.setObjectName("invite_code_toolbar")
+        invite_layout = QHBoxLayout(self.invite_toolbar)
+        self.invite_code_label = QLabel()
+        invite_layout.addWidget(self.invite_code_label)
+        invite_layout.addStretch()
+        self.copy_invite_btn = QPushButton("Copy Code")
+        self.copy_invite_btn.clicked.connect(self.copy_current_invite_code)
+        invite_layout.addWidget(self.copy_invite_btn)
+        self.rotate_invite_btn = QPushButton()
+        self.rotate_invite_btn.clicked.connect(self.generate_or_rotate_current_invite_code)
+        invite_layout.addWidget(self.rotate_invite_btn)
+        self.invite_toolbar.hide()
+        layout.addWidget(self.invite_toolbar)
         self.stack.addWidget(self.quiz_editor_panel)
 
     def init_question_editor_panel(self):
@@ -336,10 +358,10 @@ class QuizEditor(QWidget):
     def refresh_quiz_list(self):
         self.editor_quiz_list.clear()
         for quiz in self.controller.get_quiz_entries():
-            self._add_quiz_row(quiz["name"], quiz["status"])
+            self._add_quiz_row(quiz["name"], quiz["status"], quiz.get("visibility", "private"))
         self._sync_inline_selection(self.editor_quiz_list)
 
-    def _add_quiz_row(self, name, status):
+    def _add_quiz_row(self, name, status, visibility):
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, name)
         row = QWidget()
@@ -350,10 +372,17 @@ class QuizEditor(QWidget):
         name_label = QLabel(name)
         name_label.setObjectName("editor_row_label")
         layout.addWidget(name_label)
-        status_label = QLabel(f"[ {status.replace('_', ' ')} ]")
+        status_label = QLabel(f"[ {visibility.replace('_', ' ')} ]")
         status_label.setObjectName("editor_status")
         layout.addWidget(status_label)
         layout.addStretch()
+        if visibility == "class_only":
+            code_button = QToolButton()
+            code_button.setText("🔑")
+            code_button.setToolTip("Copy invitation code")
+            code_button.setObjectName("inline_action")
+            code_button.clicked.connect(lambda: self.copy_invite_code(name))
+            layout.addWidget(code_button)
         for icon, tooltip, action in (
             ("✏", "Edit", lambda: self.edit_quiz_by_name(name)),
             ("⧉", "Copy", lambda: self.copy_quiz_by_name(name)),
@@ -408,9 +437,44 @@ class QuizEditor(QWidget):
             self.refresh_question_list()
             self.stack.setCurrentWidget(self.quiz_editor_panel)
 
+    def _update_invite_code_toolbar(self):
+        class_only = self.visibility_selector.currentData() == "class_only"
+        self.invite_toolbar.setVisible(class_only and not self.current_content_banned)
+        if not class_only:
+            return
+        code = self.controller.get_current_invite_code()
+        self.invite_code_label.setText(f"🔑 Active Code: {code}" if code else "🔑 No code generated yet")
+        self.copy_invite_btn.setEnabled(bool(code))
+        self.rotate_invite_btn.setText("Rotate Code" if code else "Generate Code")
+
+    def copy_invite_code(self, name):
+        code = self.controller.get_invite_code(name)
+        if not code:
+            QMessageBox.information(self, "No invitation code", "Set this quiz to Class-Only, then generate a code in its editor.")
+            return
+        QApplication.clipboard().setText(code)
+        QToolTip.showText(QCursor.pos(), f"Code {code} copied!", self)
+
+    def copy_current_invite_code(self):
+        code = self.controller.get_current_invite_code()
+        if code:
+            QApplication.clipboard().setText(code)
+            QToolTip.showText(QCursor.pos(), f"Code {code} copied!", self)
+
+    def generate_or_rotate_current_invite_code(self):
+        success, value = self.controller.generate_or_rotate_invite_code()
+        if success:
+            self._update_invite_code_toolbar()
+            QToolTip.showText(QCursor.pos(), f"Code {value} ready to share.", self)
+        else:
+            QMessageBox.warning(self, "Invitation code", value)
+
     def _update_moderation_banner(self):
         metadata = self.controller.get_current_moderation()
         status = metadata.get("status", "draft")
+        visibility = metadata.get("visibility", default_visibility_for_status(status))
+        self.visibility_selector.setCurrentIndex(max(0, self.visibility_selector.findData(visibility)))
+        self._update_invite_code_toolbar()
         reason = metadata.get("review_note", "").strip() or "No moderation reason was provided."
         self.current_content_banned = status == "banned"
         if status not in {"rejected", "banned"}:
@@ -427,7 +491,7 @@ class QuizEditor(QWidget):
 
         for widget in (
             self.add_question_btn, self.editor_question_list,
-            self.save_quiz_btn, self.publish_quiz_btn,
+            self.visibility_selector, self.save_quiz_btn,
         ):
             widget.setEnabled(not self.current_content_banned)
 
@@ -511,21 +575,25 @@ class QuizEditor(QWidget):
         sec = "quiz_editor"
         valid_ids = {q.get('id') for q in self.controller.current_questions if q.get('id')}
 
-        if self.controller.save_quiz(self.controller.current_questions, valid_ids):
+        visibility = self.visibility_selector.currentData()
+        if self.controller.save_quiz(self.controller.current_questions, valid_ids, visibility=visibility):
+            message = (
+                "Quiz saved as a private draft."
+                if visibility == "private"
+                else "Quiz submitted for moderation."
+            )
             QMessageBox.information(
                 self,
                 t.t(f"{sec}.msg_success_title"),
-                t.t(f"{sec}.msg_quiz_saved")
+                message,
             )
             return True
         return False
 
     def publish_current_quiz(self):
-        valid_ids = {q.get('id') for q in self.controller.current_questions if q.get('id')}
-        if self.controller.save_quiz(self.controller.current_questions, valid_ids, submit_for_review=True):
-            QMessageBox.information(self, "Submitted", "Quiz submitted for moderation.")
-            return True
-        return False
+        """Backward-compatible programmatic shortcut for public submission."""
+        self.visibility_selector.setCurrentIndex(self.visibility_selector.findData("public"))
+        return self.save_current_quiz()
 
     # =========================================================
     # Question Management Methods

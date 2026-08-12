@@ -4,6 +4,37 @@ A local PyQt6 study application with quiz, flashcard, and content-editor modes.
 Content, settings, and flashcard study progress are stored as JSON files under
 `data/`.
 
+## Technology
+
+- **Python 3.10+** — application, learning logic, controllers, repositories,
+  and tests.
+- **PyQt6** — native desktop user interface, dialogs, media playback, and
+  offline text-to-speech.
+- **QSS** — application-owned light and dark theme stylesheets in `styles/`.
+- **JSON files** — local content, user accounts, preferences, progress,
+  moderation metadata, enrolments, and indexes; no server or database is
+  required for the current offline version.
+- **pytest** — automated logic, repository, controller, and UI-component
+  verification.
+
+## Architecture
+
+```text
+PyQt6 UI and dialogs
+        ↓
+Controllers (application flow and permissions)
+        ↓
+Learning logic and shared access rules
+        ↓
+Repositories / data-access layer
+        ↓
+JSON storage under data/ (content, media, users, settings, progress)
+```
+
+The UI avoids direct filesystem access. Controllers coordinate user actions,
+repositories own JSON reads/writes and media import, and `src/config.py`
+centralizes filesystem locations and shared configuration.
+
 ## Current capabilities
 
 - Quiz mode supports short answer, single-choice, multiple-choice, true/false,
@@ -17,6 +48,10 @@ Content, settings, and flashcard study progress are stored as JSON files under
   guests can study only.
 - Editors can create, copy, update, and delete quizzes/decks, including media
   paths for images and audio.
+- Teachers can make an item Class-Only, generate or rotate its readable invite
+  code, and copy that code from the editor. Signed-in learners can join a
+  published Class-Only quiz or deck from either study menu; rotating a code
+  blocks new uses of the old code without removing existing enrolments.
 - Theme and language preferences persist separately for guest mode and each
   signed-in account. Changing language refreshes the main window, settings
   panel, login dialog, and registration dialog without restarting.
@@ -28,6 +63,20 @@ Content, settings, and flashcard study progress are stored as JSON files under
   text search, mastery filtering, and middle-click auto-scroll.
 - Quiz and flashcard repositories rebuild their index files if an index is
   missing or invalid, and permanently backfill missing content IDs.
+
+## Screenshots
+
+Screenshots are generated from the real Windows UI so they use the installed
+system fonts and current content. With the app closed, run:
+
+```powershell
+.\.venv\Scripts\python.exe tools\capture_readme_screenshots.py
+```
+
+The utility captures every top-level dialog and primary screen in
+`docs/screenshots/`. Review and commit the images when they reflect the
+current UI. This avoids committing stale test data or headless renders with
+missing fonts.
 
 ## Project layout
 
@@ -62,11 +111,20 @@ project/
 
 ## Running the application
 
-Create an environment in the project directory and install PyQt6:
+### Requirements and dependencies
+
+- Python 3.10 or newer (the project is currently developed with Python 3.13).
+- Windows is the primary supported platform. Qt uses the system's configured
+  audio output for recorded audio and local text-to-speech.
+- Runtime dependencies are listed in `requirements.txt`; development and test
+  dependencies extend them in `requirements-dev.txt`.
+
+Create an environment in the project directory and install the runtime
+dependencies:
 
 ```powershell
 py -m venv .venv
-.\.venv\Scripts\python.exe -m pip install PyQt6
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m src.main
 ```
 
@@ -81,6 +139,15 @@ Install the development dependency and use the project test runner:
 
 The runner prints the result and appends the complete output to
 `logs/test_results.log`.
+
+## Version-control notes
+
+The repository keeps sample content, media, language files, and the test
+accounts needed to run the application. It ignores machine-specific settings,
+learning-progress files, virtual environments, IDE configuration, logs, and
+Python/test caches. If any of those files were committed before being ignored,
+Git will continue tracking them until they are explicitly removed from the Git
+index with `git rm --cached`.
 
 ## Refactoring
 
@@ -100,6 +167,11 @@ The runner prints the result and appends the complete output to
   deck in a separate file for each user.
 - **Test coverage:** logic, grading, paths, repositories, index recovery,
   media import, CRUD, and user progress isolation are covered by pytest.
+- **Shared access definitions:** `src.logic.access_control` is the canonical
+  source for roles, account states, content lifecycle states, visibility
+  values, labels, and lifecycle transition rules. Storage validation and
+  editor/moderation choices import it rather than maintaining independent
+  lists.
 
 ### Next refactoring candidates
 
@@ -118,6 +190,30 @@ The runner prints the result and appends the complete output to
    count. This is intentionally separate from learning-mode mastery, because
    showing the correct answer before manually marking a question learned is
    useful for study but would distort a formal test result.
+3. **Content invitation/reference codes.** Let an owner create and revoke a
+   code for a specific deck, quiz, or class-only collection. A learner can use
+   the code to enrol, without making the content public.
+4. **Teacher student-management tab.** Add a teacher-facing moderation/class
+   tab for managing the roster of their own private or class-only content.
+   This is intentionally limited to enrolment and access removal; only admins
+   retain global role, account-ban, and content-moderation powers.
+
+## Project milestones
+
+1. **Screenshots:** add representative light- and dark-theme screenshots to
+   the README, covering the launcher, study views, editor, progress, and
+   moderation screens.
+2. **Requirements and dependencies:** maintain a clear production dependency
+   list and a separate development/test dependency list, with installation
+   instructions that match them.
+3. **Git history:** continue creating small, descriptive commits for completed
+   changes and push the history to the GitHub repository.
+4. **CI/CD:** add a GitHub Actions workflow that installs dependencies and runs
+   the off-screen PyQt test suite for every push and pull request.
+5. **Database:** reassess the JSON storage model once shared users, classes,
+   invitations, or larger data volumes require stronger querying and
+   concurrent-write support. SQLite is the likely first migration target, not
+   an immediate requirement.
 
 ### Implemented: deck progress and reset
 
@@ -176,17 +272,29 @@ states, while the **Users** tab can change roles or ban/unban accounts.
 Each deck and quiz records moderation metadata and an append-only
 `moderation_history.json` beside its data file. Content follows the states
 `draft`, `pending_review`, `published`, `rejected`, and `banned`. Learners see
-only published public content (or content they are explicitly allowed to see);
-authors can preview their own non-banned content and admins can inspect all
-content. A rejected item is returned to draft for editing before it is
-resubmitted for review.
+only published public content (or content they are explicitly allowed to see).
+Creators can see their own draft, rejected, and banned work in the selector so
+they can read its moderation reason; banned content cannot be opened for study.
+Admins inspect all lifecycle states through Moderation. A rejected item is
+returned to draft for editing before it is resubmitted for review.
 
-In the editor, **Save Draft** keeps work private (and returns edited published
-content to draft). **Publish** means “submit for review”: it saves the current
-version and moves it to `pending_review`. The Moderation content tab therefore
-shows only pending submissions; admins can publish, reject, or ban the
-selected item. Draft and pending states are not exposed as manual moderation
-buttons.
+Lifecycle is separate from visibility: **Draft (Private)** is creator-only,
+**Class-Only** is available to enrolled students via a locally stored invite
+code, and **Public** is available to all learners after approval. Class-Only
+content follows the same moderation submission path as Public content. Invite
+codes are deliberately stored in plain text in this offline prototype because
+the owner must be able to view and copy them; a server-backed version should
+store only a hash. A teacher roster and per-student access removal remain
+planned features.
+
+In the editor, saving as **Draft** keeps work private (and returns edited
+published content to draft). The editor's **Visibility** selector chooses Draft (Private),
+Class-Only (Invite Code), or Public (Submit for Review), then a single **Save
+Changes** action applies that choice. Class-Only and Public save the current
+version and move it to `pending_review`. The Moderation Content tab opens on
+pending submissions, and can also filter and search every lifecycle state by
+content title or author. Admins can publish, reject, or ban a pending item;
+unbanning returns it to draft so its creator must edit and resubmit it.
 
 ## Bugs and verification status
 

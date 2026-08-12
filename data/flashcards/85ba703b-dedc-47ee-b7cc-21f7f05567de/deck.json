@@ -1,0 +1,40 @@
+{
+    "id": "85ba703b-dedc-47ee-b7cc-21f7f05567de",
+    "name": "zxc",
+    "cards": [
+        {
+            "front": "123",
+            "back": "123",
+            "hint": "",
+            "description": "",
+            "image": "",
+            "audio": {},
+            "id": "f1437221-109b-4cbb-9fa4-1eeb8100604c"
+        }
+    ],
+    "moderation": {
+        "owner_id": "4",
+        "status": "published",
+        "visibility": "class_only",
+        "allowed_user_ids": [
+            "1",
+            "2"
+        ],
+        "reviewed_by": "1",
+        "reviewed_at": "2026-08-12T00:58:06.699168+00:00",
+        "review_note": "",
+        "enrollments": {
+            "2": {
+                "enrolled_at": "2026-08-12T00:58:30.343927+00:00"
+            },
+            "1": {
+                "enrolled_at": "2026-08-12T03:04:21.793451+00:00"
+            }
+        },
+        "invite": {
+            "code": "ZXC-MQG5",
+            "created_at": "2026-08-12T00:57:51.410465+00:00",
+            "rotated_at": null
+        }
+    }
+}

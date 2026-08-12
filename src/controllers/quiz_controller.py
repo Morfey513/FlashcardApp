@@ -8,6 +8,7 @@ from src.storage.quiz_repository import QuizRepository
 from src.logic.quiz_logic import Quiz
 from src.utils.paths import resolve_stored_path
 from src.config import MASTERY_REQUIRED_SCORE, MASTERY_WRONG_PENALTY
+from src.storage.invitation_repository import InvitationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,11 @@ class QuizController:
         removed = self.repo.clear_user_progress(self.user_id)
         logger.info("All quiz progress cleared for user '%s' (%d quizzes)", self.user_id, removed)
         return removed
+
+    def join_with_code(self, code):
+        if self.user_id == "guest":
+            return False, "Sign in to join a class with an invitation code."
+        return InvitationRepository().enroll_with_code(code, self.user_id)
 
     def load_quiz_by_name(self, name):
         """Initializes a new quiz session."""

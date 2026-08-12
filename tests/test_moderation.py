@@ -14,12 +14,16 @@ def test_moderation_status_is_preserved_when_content_is_saved(tmp_path):
     moderation = ModerationRepository(flashcards, quizzes)
     item = moderation.get_all_content()[0]
     assert item["status"] == "draft"
-    assert moderation.update_status(item, "pending_review", "teacher-1", "Ready to review")
+    assert item["visibility"] == "private"
+    assert moderation.update_status(
+        item, "pending_review", "teacher-1", "Ready to review", visibility="class_only"
+    )
 
     flashcards.save_deck_content(item["file"], [{"id": "card-1", "front": "Q", "back": "A"}])
     deck_data = json.loads(item["path"].read_text(encoding="utf-8"))
     history = json.loads((item["path"].parent / "moderation_history.json").read_text(encoding="utf-8"))
     assert deck_data["moderation"]["status"] == "pending_review"
+    assert deck_data["moderation"]["visibility"] == "class_only"
     assert history[-1]["action"] == "pending_review"
 
 
@@ -33,7 +37,7 @@ def test_lifecycle_visibility_and_account_bans(tmp_path):
     assert len(moderation.get_content_for_user("teacher-1", "teacher")) == 1
 
     item = moderation.get_all_content()[0]
-    assert moderation.update_status(item, "published", "admin")
+    assert moderation.update_status(item, "published", "admin", visibility="public")
     assert len(moderation.get_content_for_user("student-1", "student")) == 1
     assert moderation.update_status(item, "banned", "admin")
     assert moderation.get_content_for_user("teacher-1", "teacher") == []

@@ -1,1 +1,3 @@
+-r requirements.txt
+# Test runner used by run_tests.py and the test suite.
 pytest==9.1.1

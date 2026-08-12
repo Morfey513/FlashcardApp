@@ -2,12 +2,20 @@ from html import escape
 
 from pathlib import Path
 
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QListWidget, QPushButton, QVBoxLayout, QInputDialog, QTabWidget, QWidget, QTreeWidget, QTreeWidgetItem, QSplitter, QFrame, QScrollArea
+from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QInputDialog, QTabWidget, QWidget, QTreeWidget, QTreeWidgetItem, QSplitter, QFrame, QScrollArea
 from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 
 from src.storage.moderation_repository import ModerationRepository
+from src.logic.access_control import (
+    CONTENT_STATUSES,
+    CONTENT_STATUS_LABELS,
+    ROLE_LABELS,
+    ROLES,
+    VISIBILITIES,
+    VISIBILITY_LABELS,
+)
 from src.ui.auto_scroll import AutoScrollTextBrowser
 from src.utils.paths import resolve_stored_path
 
@@ -95,6 +103,15 @@ class ImagePreviewDialog(QDialog):
 
 
 class ModerationDialog(QDialog):
+    # Calm semantic colors shared by content lifecycle and account states.
+    STATUS_COLORS = {
+        "published": ("#DCFCE7", "#15803D"),
+        "pending_review": ("#E0F2FE", "#0369A1"),
+        "draft": ("#F3F4F6", "#4B5563"),
+        "rejected": ("#FEF3C7", "#B45309"),
+        "banned": ("#FEE2E2", "#B91C1C"),
+        "active": ("#DCFCE7", "#15803D"),
+    }
     def __init__(self, actor_id, parent=None):
         super().__init__(parent)
         self.actor_id = actor_id
@@ -114,12 +131,38 @@ class ModerationDialog(QDialog):
     def _build_content_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        filters = QHBoxLayout()
+        filters.addWidget(QLabel("Filter:"))
+        self.content_status_filter = QComboBox()
+        self.content_status_filter.addItem(CONTENT_STATUS_LABELS["pending_review"], "pending_review")
+        self.content_status_filter.addItem("All statuses", "all")
+        for status in CONTENT_STATUSES:
+            if status != "pending_review":
+                self.content_status_filter.addItem(CONTENT_STATUS_LABELS[status], status)
+        self.content_status_filter.currentIndexChanged.connect(self._refresh_content)
+        filters.addWidget(self.content_status_filter)
+        filters.addWidget(QLabel("Visibility:"))
+        self.content_visibility_filter = QComboBox()
+        self.content_visibility_filter.addItem("All visibility", "all")
+        for visibility in VISIBILITIES:
+            self.content_visibility_filter.addItem(VISIBILITY_LABELS[visibility], visibility)
+        self.content_visibility_filter.currentIndexChanged.connect(self._refresh_content)
+        filters.addWidget(self.content_visibility_filter)
+        self.content_search = QLineEdit()
+        self.content_search.setPlaceholderText("Search content title or author…")
+        self.content_search.textChanged.connect(self._refresh_content)
+        filters.addWidget(self.content_search, 1)
+        clear_button = QPushButton("Clear")
+        clear_button.clicked.connect(self._clear_content_filters)
+        filters.addWidget(clear_button)
+        layout.addLayout(filters)
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         queue_panel = QWidget()
         queue_layout = QVBoxLayout(queue_panel)
         queue_layout.setContentsMargins(0, 0, 0, 0)
-        queue_layout.addWidget(QLabel("PENDING REVIEW"))
+        self.content_list_heading = QLabel("PENDING REVIEW")
+        queue_layout.addWidget(self.content_list_heading)
         self.items = QListWidget()
         self.items.currentRowChanged.connect(self._show_content_detail)
         queue_layout.addWidget(self.items)
@@ -148,10 +191,17 @@ class ModerationDialog(QDialog):
         # Let the scrollable review content use the remaining panel height;
         # a separate stretch here left an empty visual gap above the decision.
         detail_layout.addWidget(self.detail_preview, 1)
-        detail_layout.addWidget(QLabel("DECISION"))
+        self.content_action_heading = QLabel("DECISION")
+        detail_layout.addWidget(self.content_action_heading)
         controls = QHBoxLayout()
-        for status in ("published", "rejected", "banned"):
-            button = QPushButton(status.replace("_", " ").title())
+        self.publish_button = QPushButton("Publish")
+        self.reject_button = QPushButton("Reject")
+        self.ban_button = QPushButton("Ban")
+        self.unban_button = QPushButton("Unban to Draft")
+        for button, status in (
+            (self.publish_button, "published"), (self.reject_button, "rejected"),
+            (self.ban_button, "banned"), (self.unban_button, "draft"),
+        ):
             button.clicked.connect(lambda _=False, value=status: self.change_status(value))
             controls.addWidget(button)
         detail_layout.addLayout(controls)
@@ -171,17 +221,31 @@ class ModerationDialog(QDialog):
         self.users.setColumnWidth(1, 90)
         self.users.setColumnWidth(2, 85)
         self.users.setColumnWidth(3, 165)
+        self.users.currentItemChanged.connect(
+            lambda current, _previous: self._sync_selected_user_role(current)
+        )
         layout.addWidget(self.users)
         controls = QHBoxLayout()
-        for label, action in (
-            ("Make Student", "student"),
-            ("Make Teacher", "teacher"),
-            ("Make Admin", "admin"),
-            ("Ban / Unban", "toggle"),
-        ):
-            button = QPushButton(label)
-            button.clicked.connect(lambda _=False, value=action: self.update_user(value))
-            controls.addWidget(button)
+        controls.setSpacing(10)
+        self.view_content_button = QPushButton("View User's Content")
+        self.view_content_button.clicked.connect(self.view_selected_user_content)
+        controls.addWidget(self.view_content_button, 1)
+        controls.addWidget(QLabel("Role:"))
+        self.role_selector = QComboBox()
+        self.role_selector.setMinimumWidth(115)
+        for role in ROLES:
+            self.role_selector.addItem(ROLE_LABELS[role], role)
+        controls.addWidget(self.role_selector)
+        self.apply_role_button = QPushButton("Apply Role")
+        self.apply_role_button.setObjectName("publish_btn")
+        self.apply_role_button.clicked.connect(self.apply_selected_role)
+        self.apply_role_button.setMinimumWidth(150)
+        controls.addWidget(self.apply_role_button)
+        self.ban_toggle_button = QPushButton("Ban / Unban")
+        self.ban_toggle_button.setObjectName("danger")
+        self.ban_toggle_button.clicked.connect(lambda: self.update_user("toggle"))
+        self.ban_toggle_button.setMinimumWidth(180)
+        controls.addWidget(self.ban_toggle_button)
         layout.addLayout(controls)
         self.tabs.addTab(tab, "Users")
 
@@ -206,15 +270,104 @@ class ModerationDialog(QDialog):
                 user["login"], user["role"], user.get("status", "active"),
                 banned_at, user.get("ban_reason") or "—",
             ])
+            background, foreground = self.STATUS_COLORS.get(
+                user.get("status", "active"), ("#F3F4F6", "#4B5563")
+            )
+            row.setBackground(2, QColor(background))
+            row.setForeground(2, QColor(foreground))
             row.setData(0, Qt.ItemDataRole.UserRole, user)
             self.users.addTopLevelItem(row)
+        self.users_by_id = {str(user["id"]): user for user in self.user_data}
+        self._sync_selected_user_role(self.users.currentItem())
+        self._refresh_content()
+
+    def _sync_selected_user_role(self, row):
+        """Keep the role selector aligned with the selected account."""
+        if not hasattr(self, "role_selector"):
+            return
+        user = row.data(0, Qt.ItemDataRole.UserRole) if row is not None else None
+        is_current_user = bool(user and str(user["id"]) == str(self.actor_id))
+        if user:
+            self.role_selector.setCurrentIndex(
+                max(0, self.role_selector.findData(user.get("role", "student")))
+            )
+        self.role_selector.setEnabled(bool(user) and not is_current_user)
+        self.apply_role_button.setEnabled(bool(user) and not is_current_user)
+        self.ban_toggle_button.setEnabled(bool(user) and not is_current_user)
+
+    def apply_selected_role(self):
+        self.update_user(self.role_selector.currentData())
+
+    def _refresh_content(self):
+        """Apply lifecycle, title, and author filters to the review list."""
+        if not hasattr(self, "content_status_filter"):
+            return
+        status_filter = self.content_status_filter.currentData()
+        visibility_filter = self.content_visibility_filter.currentData()
+        search = self.content_search.text().strip().casefold()
+        self.content = []
+        for item in self.repo.get_all_content():
+            if status_filter != "all" and item["status"] != status_filter:
+                continue
+            if visibility_filter != "all" and item.get("visibility") != visibility_filter:
+                continue
+            author = self._author_login(item.get("owner_id", ""))
+            searchable = " ".join((item["name"], str(item.get("owner_id", "")), author)).casefold()
+            if search and search not in searchable:
+                continue
+            self.content.append(item)
+        self.items.clear()
+        for item in self.content:
+            kind = "Quiz" if item["kind"] == "quiz" else "Flashcard"
+            row = QListWidgetItem(
+                f"{kind}: {item['name']}  "
+                f"[{CONTENT_STATUS_LABELS[item['status']]} · {VISIBILITY_LABELS[item['visibility']]}]"
+            )
+            self._apply_status_colors(row, item["status"])
+            self.items.addItem(row)
+        label = "ALL STATUSES" if status_filter == "all" else CONTENT_STATUS_LABELS[status_filter].upper()
+        if visibility_filter != "all":
+            label += f" · {VISIBILITY_LABELS[visibility_filter].upper()}"
+        self.content_list_heading.setText(label)
+        self._show_content_detail(self.items.currentRow())
+
+    @classmethod
+    def _apply_status_colors(cls, item, status):
+        background, foreground = cls.STATUS_COLORS.get(status, ("#F3F4F6", "#4B5563"))
+        item.setBackground(QColor(background))
+        item.setForeground(QColor(foreground))
+
+    def _clear_content_filters(self):
+        self.content_status_filter.setCurrentIndex(0)
+        self.content_visibility_filter.setCurrentIndex(0)
+        self.content_search.clear()
+
+    def _author_login(self, owner_id):
+        user = getattr(self, "users_by_id", {}).get(str(owner_id))
+        return user["login"] if user else str(owner_id)
+
+    def view_selected_user_content(self):
+        row = self.users.currentItem()
+        if row is None:
+            return
+        user = row.data(0, Qt.ItemDataRole.UserRole)
+        self.tabs.setCurrentIndex(0)
+        self.content_status_filter.setCurrentIndex(1)  # All content
+        self.content_search.setText(user["login"])
 
     def change_status(self, status):
         index = self.items.currentRow()
         if index < 0:
             return
+        current_status = self.content[index].get("status")
         if status == "published":
             if self.repo.update_status(self.content[index], status, self.actor_id):
+                self.refresh()
+            return
+
+        if status == "draft" and current_status == "banned":
+            note = "Unbanned by an administrator. Edit the content and submit it for review again."
+            if self.repo.update_status(self.content[index], status, self.actor_id, note):
                 self.refresh()
             return
 
@@ -230,15 +383,32 @@ class ModerationDialog(QDialog):
             self.detail_title.setText("Select a submission")
             self.detail_meta.setText("")
             self.detail_preview.setHtml("Choose a pending quiz or deck to review its questions/cards.")
+            self._update_content_actions(None)
             return
         item = self.content[index]
         preview, count = self.repo.get_preview(item)
         self.detail_title.setText(item["name"])
         submitted = (item.get("reviewed_at") or "Unknown").replace("T", " ").split("+")[0]
+        status = CONTENT_STATUS_LABELS[item.get("status", "draft")]
+        visibility = VISIBILITY_LABELS[item.get("visibility", "private")]
         self.detail_meta.setText(
-            f"{item['kind'].title()}  |  Author: {item.get('owner_id', 'Unknown')}  |  Submitted: {submitted}"
+            f"{item['kind'].title()}  |  Status: {status}  |  Visibility: {visibility}  |  "
+            f"Author: {self._author_login(item.get('owner_id', 'Unknown'))}  |  Submitted: {submitted}"
         )
-        self.detail_preview.setHtml(self._format_preview(item["kind"], preview, count))
+        html = self._format_preview(item["kind"], preview, count)
+        reason = (item.get("review_note") or "").strip()
+        if reason and item.get("status") in {"rejected", "banned"}:
+            html = f"<p><b>Moderator reason:</b> {escape(reason)}</p>" + html
+        self.detail_preview.setHtml(html)
+        self._update_content_actions(item.get("status"))
+
+    def _update_content_actions(self, status):
+        pending = status == "pending_review"
+        banned = status == "banned"
+        for button in (self.publish_button, self.reject_button, self.ban_button):
+            button.setVisible(pending)
+        self.unban_button.setVisible(banned)
+        self.content_action_heading.setVisible(pending or banned)
 
     @staticmethod
     def _format_preview(kind, entries, count):

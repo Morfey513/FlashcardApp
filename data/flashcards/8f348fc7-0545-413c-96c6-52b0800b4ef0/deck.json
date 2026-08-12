@@ -28,11 +28,11 @@
     ],
     "moderation": {
         "owner_id": "legacy",
-        "status": "banned",
+        "status": "draft",
         "visibility": "public",
         "allowed_user_ids": [],
         "reviewed_by": "1",
-        "reviewed_at": "2026-08-08T13:35:18.958057+00:00",
-        "review_note": "zxc"
+        "reviewed_at": "2026-08-08T18:53:43.019850+00:00",
+        "review_note": "Unbanned by an administrator. Edit the content and submit it for review again."
     }
 }

@@ -1282,11 +1282,11 @@
     ],
     "moderation": {
         "owner_id": "legacy",
-        "status": "pending_review",
-        "visibility": "public",
+        "status": "published",
+        "visibility": "class_only",
         "allowed_user_ids": [],
         "reviewed_by": "1",
-        "reviewed_at": "2026-08-07T20:02:49.116209+00:00",
+        "reviewed_at": "2026-08-12T00:22:59.880577+00:00",
         "review_note": ""
     }
 }

@@ -6,6 +6,8 @@ import uuid
 
 from src.storage.quiz_repository import QuizRepository
 from src.utils.paths import resolve_stored_path, to_stored_path
+from src.logic.access_control import is_visibility, visibility_submission_status
+from src.storage.invitation_repository import InvitationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +33,8 @@ class QuizEditorController:
             item["file"]: item for item in ModerationRepository(quizzes=self.repo).get_all_content()
         }
         return [
-            {**quiz, "status": metadata[quiz["file"]]["status"]}
+            {**quiz, "status": metadata[quiz["file"]]["status"],
+             "visibility": metadata[quiz["file"]].get("visibility", "private")}
             for quiz in self._editable_quizzes()
         ]
 
@@ -43,6 +46,24 @@ class QuizEditorController:
             if item["file"] == self.current_quiz_info["file"]:
                 return item
         return {}
+
+    def get_current_invite_code(self):
+        if not self.current_quiz_info:
+            return ""
+        return InvitationRepository().get_invitation(
+            self.current_quiz_info["file"], "quiz"
+        ).get("code", "")
+
+    def generate_or_rotate_invite_code(self):
+        if not self.current_quiz_info:
+            return False, "Open a quiz before generating an invitation code."
+        return InvitationRepository().generate_or_rotate_code(
+            self.current_quiz_info["file"], "quiz", self.owner_id
+        )
+
+    def get_invite_code(self, name):
+        quiz = next((item for item in self._editable_quizzes() if item["name"] == name), None)
+        return InvitationRepository().get_invitation(quiz["file"], "quiz").get("code", "") if quiz else ""
 
     def process_image_path(self, absolute_path: str) -> str:
         """Convert absolute path to project-relative path."""
@@ -72,10 +93,12 @@ class QuizEditorController:
         logger.error(f"Quiz not found: {name}")
         return False
 
-    def save_quiz(self, questions, valid_ids, submit_for_review=False):
-        """Save a draft, or save and submit it to the moderation queue."""
+    def save_quiz(self, questions, valid_ids, visibility="private"):
+        """Save private work or submit public/class-only work for review."""
         try:
             if not self.current_quiz_info:
+                return False
+            if not is_visibility(visibility):
                 return False
 
             for q in questions:
@@ -85,9 +108,10 @@ class QuizEditorController:
             self.repo.save_quiz_content(self.current_quiz_info["file"], questions)
             self.repo.prune_progress(self.current_quiz_info["file"], set(valid_ids))
             from src.storage.moderation_repository import ModerationRepository
-            status = "pending_review" if submit_for_review else "draft"
+            status = visibility_submission_status(visibility)
             ModerationRepository(quizzes=self.repo).set_content_status(
-                self.current_quiz_info["file"], "quiz", status, self.owner_id
+                self.current_quiz_info["file"], "quiz", status, self.owner_id,
+                visibility=visibility,
             )
             self.has_unsaved_changes = False
             return True

@@ -16,6 +16,7 @@ from src.logic.translator import get_translator
 from src.utils.text_to_speech import TextToSpeech
 from src.utils.paths import resolve_stored_path
 from src.utils.recorded_audio import RecordedAudioPlayer
+from src.ui.join_with_code_dialog import JoinWithCodeDialog
 
 # Initialize Logger
 logger = logging.getLogger(__name__)
@@ -192,8 +193,9 @@ class FlashcardViewer(QWidget):
         # Deck selection panel
         self.deck_title_label.setText(t.t(f"{sec}.title"))
         self.start_btn.setText(t.t(f"{sec}.btn_start"))
-        self.back_btn.setText(t.t(f"{sec}.btn_back_to_menu"))
+        self.back_btn.setText("← " + t.t(f"{sec}.btn_back_to_menu"))
         self.manage_progress_btn.setText(t.t(f"{sec}.btn_manage_progress"))
+        self.join_with_code_btn.setText("🔑 Join with Code")
         self.refresh_deck_list()
 
         # Study panel buttons
@@ -395,6 +397,14 @@ class FlashcardViewer(QWidget):
         layout = QVBoxLayout(self.deck_selection_panel)
         layout.setContentsMargins(40, 40, 40, 40)
 
+        header = QHBoxLayout()
+        self.back_btn = QPushButton()
+        self.back_btn.setObjectName("mode_back_btn")
+        self.back_btn.clicked.connect(self.finished.emit)
+        header.addWidget(self.back_btn)
+        header.addStretch()
+        layout.addLayout(header)
+
         self.deck_title_label = QLabel()
         self.deck_title_label.setObjectName("title")
         layout.addWidget(self.deck_title_label, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -414,17 +424,29 @@ class FlashcardViewer(QWidget):
         self.start_btn = QPushButton()
         self.start_btn.setFixedSize(200, 50)
         self.start_btn.clicked.connect(self.start_selected_deck)
-
-        self.back_btn = QPushButton()
-        self.back_btn.setFixedSize(200, 50)
-        self.back_btn.clicked.connect(self.finished.emit)
+        self.join_with_code_btn = QPushButton()
+        self.join_with_code_btn.setFixedSize(200, 50)
+        self.join_with_code_btn.clicked.connect(self.join_with_code)
+        self.join_with_code_btn.setEnabled(self.controller.user_id != "guest")
+        if self.controller.user_id == "guest":
+            self.join_with_code_btn.setToolTip("Sign in to join class-only content.")
 
         btn_layout.addWidget(self.manage_progress_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.back_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        btn_layout.addWidget(self.join_with_code_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         btn_layout.addWidget(self.start_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
         layout.addLayout(btn_layout)
         self.stack.addWidget(self.deck_selection_panel)
+
+    def join_with_code(self):
+        code = JoinWithCodeDialog.get_code(self)
+        if code is None:
+            return
+        success, message = self.controller.join_with_code(code)
+        if success:
+            self.refresh_deck_list()
+            QMessageBox.information(self, "Enrollment complete", message)
+        else:
+            QMessageBox.warning(self, "Unable to enroll", message)
 
     def init_study_panel(self):
         self.study_panel = QFrame()

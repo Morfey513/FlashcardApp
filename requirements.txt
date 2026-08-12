@@ -1,0 +1,3 @@
+# Runtime dependency for the PyQt6 desktop application. Qt multimedia and
+# text-to-speech modules are provided by the PyQt6 package.
+PyQt6>=6.6,<7

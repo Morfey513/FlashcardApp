@@ -1062,3 +1062,13 @@ QFrame#review_item_row {
 QFrame#review_item_row:hover {
     background-color: #333333;
 }
+
+QPushButton#mode_back_btn { background: transparent; color: #cbd5e1; border: none; padding: 8px 12px; }
+QPushButton#mode_back_btn:hover { background: #334155; border-radius: 6px; }
+
+QFrame#invite_code_toolbar {
+    background-color: #263548;
+    border: 1px solid #40536b;
+    border-radius: 7px;
+    padding: 4px;
+}

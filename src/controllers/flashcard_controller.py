@@ -5,6 +5,7 @@ from src.logic.flashcard_logic import FlashcardSession
 from src.logic.translator import get_translator
 from src.storage.flashcard_repository import FlashcardRepository
 from src.utils.paths import resolve_stored_path
+from src.storage.invitation_repository import InvitationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,11 @@ class FlashcardController:
         removed = self.repo.clear_user_progress(self.user_id)
         logger.info("All deck progress cleared for user '%s' (%d decks)", self.user_id, removed)
         return removed
+
+    def join_with_code(self, code):
+        if self.user_id == "guest":
+            return False, "Sign in to join a class with an invitation code."
+        return InvitationRepository().enroll_with_code(code, self.user_id)
 
     # =========================================================
     # STUDY SESSION MANAGEMENT
