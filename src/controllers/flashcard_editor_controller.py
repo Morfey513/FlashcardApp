@@ -5,7 +5,12 @@ import uuid
 from pathlib import Path
 from src.storage.flashcard_repository import FlashcardRepository
 from src.utils.paths import resolve_stored_path, to_stored_path
-from src.logic.access_control import is_visibility, visibility_submission_status
+from src.logic.access_control import (
+    can_create_content,
+    can_edit_content,
+    is_visibility,
+    visibility_submission_status,
+)
 from src.storage.invitation_repository import InvitationRepository
 
 logger = logging.getLogger(__name__)
@@ -59,6 +64,8 @@ class FlashcardEditorController:
         return InvitationRepository().get_invitation(deck["file"], "flashcard").get("code", "") if deck else ""
 
     def create_deck(self, name):
+        if not can_create_content(self.role):
+            return False
         return self.repo.create_deck(name, owner_id=self.owner_id)
 
     def load_deck(self, name):
@@ -91,6 +98,7 @@ class FlashcardEditorController:
             status = visibility_submission_status(visibility)
             ModerationRepository(flashcards=self.repo).set_content_status(
                 rel_path, "flashcard", status, self.owner_id, visibility=visibility,
+                actor_role=self.role,
             )
 
             # 3. Progress Cleanup: Remove mastery data for cards that no longer exist
@@ -152,13 +160,37 @@ class FlashcardEditorController:
 
     def delete_deck(self, name):
         """Delete a deck permanently."""
+        deck = next((item for item in self._editable_decks() if item["name"] == name), None)
+        if not deck or not can_edit_content(
+            self.role,
+            self._owner_for(deck) == self.owner_id,
+        ):
+            return False
         return self.repo.delete_deck_permanently(name)
 
     def copy_deck(self, original_name, new_name):
         """Copy a deck with new IDs."""
+        deck = next(
+            (item for item in self._editable_decks() if item["name"] == original_name),
+            None,
+        )
+        if not deck or not can_edit_content(
+            self.role,
+            self._owner_for(deck) == self.owner_id,
+        ):
+            return False
         return self.repo.copy_deck(original_name, new_name, self.owner_id)
 
+    def _owner_for(self, deck):
+        item = next(
+            (entry for entry in self._moderation_items() if entry["file"] == deck["file"]),
+            {},
+        )
+        return str(item.get("owner_id", ""))
+
     def _editable_decks(self):
+        if self.role not in {"teacher", "admin"}:
+            return []
         items = self._moderation_items()
         allowed = {
             item["file"] for item in items

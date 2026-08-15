@@ -16,7 +16,10 @@ from src.logic.translator import get_translator
 from src.utils.text_to_speech import TextToSpeech
 from src.utils.paths import resolve_stored_path
 from src.utils.recorded_audio import RecordedAudioPlayer
-from src.ui.join_with_code_dialog import JoinWithCodeDialog
+from src.ui.join_with_code_dialog import (
+    configure_join_with_code_button,
+    run_join_with_code_flow,
+)
 
 # Initialize Logger
 logger = logging.getLogger(__name__)
@@ -124,13 +127,14 @@ class DeckListRow(QFrame):
         layout.addWidget(count)
 
         status = deck.get("moderation_status", "published")
+        displayed_status = deck.get("visibility", "public") if status == "published" else status
         is_actionable = deck.get("can_view_moderation_reason", deck.get("is_owner")) and status in {"rejected", "banned"}
         chip = QPushButton(
             f"{status.replace('_', ' ').title()} (info)" if is_actionable
-            else status.replace("_", " ").title()
+            else displayed_status.replace("_", "-").title()
         )
         chip.setObjectName("content_status_chip")
-        chip.setProperty("content_status", status)
+        chip.setProperty("content_status", displayed_status)
         chip.setProperty("interactive", is_actionable)
         chip.setFixedSize(120, 30)
         if is_actionable:
@@ -167,7 +171,8 @@ class FlashcardViewer(QWidget):
         self.current_hint_text = ""
         self.current_card_audio = {"front": "", "back": "", "hint": "", "description": ""}
 
-        self.setFixedSize(750, 770)
+        self.resize(750, 770)
+        self.setMinimumSize(700, 720)
 
         self.stack = QStackedLayout()
         self.setLayout(self.stack)
@@ -403,6 +408,13 @@ class FlashcardViewer(QWidget):
         self.back_btn.clicked.connect(self.finished.emit)
         header.addWidget(self.back_btn)
         header.addStretch()
+        self.join_with_code_btn = QPushButton()
+        configure_join_with_code_button(
+            self.join_with_code_btn,
+            self.controller.user_id,
+            self.join_with_code,
+        )
+        header.addWidget(self.join_with_code_btn)
         layout.addLayout(header)
 
         self.deck_title_label = QLabel()
@@ -424,29 +436,17 @@ class FlashcardViewer(QWidget):
         self.start_btn = QPushButton()
         self.start_btn.setFixedSize(200, 50)
         self.start_btn.clicked.connect(self.start_selected_deck)
-        self.join_with_code_btn = QPushButton()
-        self.join_with_code_btn.setFixedSize(200, 50)
-        self.join_with_code_btn.clicked.connect(self.join_with_code)
-        self.join_with_code_btn.setEnabled(self.controller.user_id != "guest")
-        if self.controller.user_id == "guest":
-            self.join_with_code_btn.setToolTip("Sign in to join class-only content.")
 
+        btn_layout.addStretch()
         btn_layout.addWidget(self.manage_progress_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        btn_layout.addWidget(self.join_with_code_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        btn_layout.addStretch()
         btn_layout.addWidget(self.start_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        btn_layout.addStretch()
         layout.addLayout(btn_layout)
         self.stack.addWidget(self.deck_selection_panel)
 
     def join_with_code(self):
-        code = JoinWithCodeDialog.get_code(self)
-        if code is None:
-            return
-        success, message = self.controller.join_with_code(code)
-        if success:
-            self.refresh_deck_list()
-            QMessageBox.information(self, "Enrollment complete", message)
-        else:
-            QMessageBox.warning(self, "Unable to enroll", message)
+        run_join_with_code_flow(self, self.controller, self.refresh_deck_list)
 
     def init_study_panel(self):
         self.study_panel = QFrame()

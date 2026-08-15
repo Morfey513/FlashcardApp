@@ -235,6 +235,7 @@ class FlashcardController:
             {
                 **deck,
                 "moderation_status": content[deck["file"]]["status"],
+                "visibility": content[deck["file"]].get("visibility", "public"),
                 "moderation_reason": content[deck["file"]].get("review_note", ""),
                 "is_owner": str(content[deck["file"]].get("owner_id")) == str(self.user_id),
                 "can_view_moderation_reason": (

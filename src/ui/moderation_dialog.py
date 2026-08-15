@@ -1,9 +1,11 @@
 from html import escape
+import csv
+from datetime import datetime
 
 from pathlib import Path
 
-from PyQt6.QtWidgets import QApplication, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QInputDialog, QTabWidget, QWidget, QTreeWidget, QTreeWidgetItem, QSplitter, QFrame, QScrollArea, QMessageBox, QSizePolicy, QToolTip
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QInputDialog, QTabWidget, QWidget, QTreeWidget, QTreeWidgetItem, QSplitter, QFrame, QScrollArea, QMessageBox, QSizePolicy, QToolTip, QFileDialog, QTextBrowser, QRadioButton, QButtonGroup, QDialogButtonBox
+from PyQt6.QtCore import QSize, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QPixmap
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 
@@ -116,6 +118,123 @@ class ClassRosterHeader(QFrame):
         super().mousePressEvent(event)
 
 
+class InterruptedAttemptDialog(QDialog):
+    """Teacher decision for a student's unfinished test attempt."""
+
+    def __init__(self, login, attempt, parent=None):
+        super().__init__(parent)
+        self.setObjectName("interrupted_attempt_dialog")
+        self.setWindowTitle("Resolve interrupted attempt")
+        self.resize(520, 300)
+        layout = QVBoxLayout(self)
+        title = QLabel(f"⚠ Interrupted Attempt: {login}")
+        title.setObjectName("moderation_detail_title")
+        layout.addWidget(title)
+        started = str(attempt.get("started_at", "—")).replace("T", " ")[:19]
+        question = attempt.get("last_question") or attempt.get("current_question") or 0
+        total = attempt.get("total", 0)
+        layout.addWidget(QLabel(
+            f"Started: {started}  |  Interrupted at question {question} of {total}"
+        ))
+        self.actions = QButtonGroup(self)
+        options = (
+            ("submit_current", "Submit current answers (auto-grade answered questions)"),
+            ("refund", "Reset and refund attempt"),
+            ("mark_zero", "Mark as zero / abandoned"),
+        )
+        for index, (value, text) in enumerate(options):
+            radio = QRadioButton(text)
+            radio.setProperty("value", value)
+            self.actions.addButton(radio)
+            layout.addWidget(radio)
+            if index == 0:
+                radio.setChecked(True)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Apply
+        )
+        buttons.rejected.connect(self.reject)
+        # ApplyRole buttons do not emit QDialogButtonBox.accepted. Connect
+        # this standard button directly so the teacher's decision actually
+        # closes the dialog with an Accepted result and reaches the resolver.
+        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self.accept)
+        layout.addWidget(buttons)
+
+    def selected_action(self):
+        selected = self.actions.checkedButton()
+        return selected.property("value") if selected else "submit_current"
+
+
+class QuizAnalyticsDialog(QDialog):
+    """Question-level class analytics and student submission inspection."""
+
+    def __init__(self, item, analytics, attempts, login, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Analytics — {item['name']}")
+        self.resize(820, 600)
+        layout = QVBoxLayout(self)
+        title = QLabel(f"ANALYTICS & REVIEW: {item['name']}")
+        title.setObjectName("moderation_detail_title")
+        layout.addWidget(title)
+        tabs = QTabWidget()
+
+        analysis_tab = QWidget()
+        analysis_layout = QVBoxLayout(analysis_tab)
+        analysis_table = QTreeWidget()
+        analysis_table.setHeaderLabels(["Question", "Correct Rate", "Avg Time", "Difficulty"])
+        analysis_table.setColumnWidth(0, 430)
+        for row in analytics:
+            rate = "—" if row["correct_rate"] is None else f"{row['correct_rate']:g}% ({row['correct']}/{row['responses']})"
+            timing = "—" if row["average_seconds"] is None else f"{row['average_seconds']:g}s"
+            analysis_table.addTopLevelItem(QTreeWidgetItem([
+                row["question"], rate, timing, row["difficulty"],
+            ]))
+        analysis_layout.addWidget(analysis_table)
+        tabs.addTab(analysis_tab, "Per-Question Analytics")
+
+        review_tab = QWidget()
+        review_layout = QVBoxLayout(review_tab)
+        review_layout.addWidget(QLabel(f"Student: {login}"))
+        attempt_selector = QComboBox()
+        completed = [
+            attempt for attempt in attempts
+            if attempt.get("status") in {"submitted", "timed_out", "marked_zero"}
+        ]
+        for attempt in completed:
+            percentage = float(attempt.get("percentage", 0) or 0)
+            attempt_selector.addItem(
+                f"Attempt #{attempt.get('attempt_number', '?')} — {percentage:g}%",
+                attempt,
+            )
+        review_layout.addWidget(attempt_selector)
+        answers = QTextBrowser()
+        answers.setObjectName("moderation_detail_preview")
+        review_layout.addWidget(answers, 1)
+
+        def render_attempt():
+            attempt = attempt_selector.currentData()
+            if not attempt:
+                answers.setHtml("<p>No completed submissions are available.</p>")
+                return
+            blocks = []
+            for index, answer in enumerate(attempt.get("answers", []), 1):
+                correct = answer.get("is_correct") is True
+                blocks.append(
+                    f"<p><b>Q{index}: {escape(str(answer.get('question', '')))}</b><br>"
+                    f"Student Answer: {escape(str(answer.get('user_answer', '—')))} "
+                    f"{'✅ Correct' if correct else '❌ Incorrect'}<br>"
+                    f"Correct Answer: {escape(str(answer.get('correct_answer', '—')))}</p>"
+                )
+            answers.setHtml("".join(blocks) or "<p>No answers were recorded.</p>")
+
+        attempt_selector.currentIndexChanged.connect(render_attempt)
+        render_attempt()
+        tabs.addTab(review_tab, "Student Answer Review")
+        layout.addWidget(tabs)
+        close = QPushButton("Close")
+        close.clicked.connect(self.accept)
+        layout.addWidget(close, 0, Qt.AlignmentFlag.AlignRight)
+
+
 class ModerationDialog(QDialog):
     # Calm semantic colors shared by content lifecycle and account states.
     STATUS_COLORS = {
@@ -135,6 +254,7 @@ class ModerationDialog(QDialog):
         self.invites = InvitationRepository(self.repo)
         self._class_expanded = {}
         self._class_visible_limits = {}
+        self._selected_class_item = None
         self.audio_output = QAudioOutput(self)
         self.audio_player = QMediaPlayer(self)
         self.audio_player.setAudioOutput(self.audio_output)
@@ -172,19 +292,34 @@ class ModerationDialog(QDialog):
 
         filters = QHBoxLayout()
         self.class_search = QLineEdit()
+        self.class_search.setObjectName("class_search")
         self.class_search.setPlaceholderText("Search student or quiz/deck…")
+        # QLineEdit's native trailing clear action behaves like a browser
+        # search field: it appears only while text is present and keeps the
+        # whole search control as one compact component.
+        self.class_search.setClearButtonEnabled(True)
         self.class_search.textChanged.connect(self._refresh_classes)
         filters.addWidget(self.class_search, 1)
         self.class_type_filter = QComboBox()
-        self.class_type_filter.addItem("All Class-Only Content", "all")
-        self.class_type_filter.addItem("Quizzes Only", "quiz")
-        self.class_type_filter.addItem("Flashcards Only", "flashcard")
+        self.class_type_filter.addItem("All", "all")
+        self.class_type_filter.addItem("Quizzes", "quiz")
+        self.class_type_filter.addItem("Flashcards", "flashcard")
+        self.class_type_filter.setFixedWidth(130)
         self.class_type_filter.currentIndexChanged.connect(self._refresh_classes)
         filters.addWidget(self.class_type_filter)
-        clear = QPushButton("Clear")
-        clear.setFixedSize(90, 34)
-        clear.clicked.connect(self._clear_class_filters)
-        filters.addWidget(clear)
+        filters.addSpacing(8)
+        self.export_results_button = QPushButton("📥 Export CSV")
+        self.export_results_button.setObjectName("class_toolbar_button")
+        self.export_results_button.setFixedSize(130, 34)
+        self.export_results_button.clicked.connect(self._export_class_results)
+        filters.addWidget(self.export_results_button)
+        self.review_settings_button = QPushButton("⚙ Settings")
+        self.review_settings_button.setObjectName("class_toolbar_button")
+        self.review_settings_button.setFixedSize(120, 34)
+        self.review_settings_button.setToolTip("Configure when students may review correct answers")
+        self.review_settings_button.clicked.connect(self._change_answer_review_policy)
+        self.review_settings_button.setEnabled(False)
+        filters.addWidget(self.review_settings_button)
         layout.addLayout(filters)
 
         self.class_scroll = AutoScrollArea()
@@ -414,11 +549,28 @@ class ModerationDialog(QDialog):
         title = QLabel(f"{icon}  {item['name']}")
         title.setObjectName("editor_row_label")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setMaximumWidth(220)
+        title.setToolTip(item["name"])
         header.addWidget(title, 1)
         tag = QLabel("Class-Only")
         tag.setObjectName("editor_status")
+        tag.setFixedWidth(85)
+        tag.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.addWidget(tag)
-        count = QLabel(f"{len(item['roster'])} Students Enrolled")
+        if item["kind"] == "quiz":
+            due = self._format_due_date(item.get("test_settings", {}).get("due_at"))
+            average = item.get("class_average")
+            due_badge = QLabel(f"📅 {due}")
+            due_badge.setFixedWidth(125)
+            due_badge.setToolTip(due)
+            header.addWidget(due_badge)
+            average_badge = QLabel(
+                "📊 Avg: —" if average is None else f"📊 Avg: {average:g}%"
+            )
+            average_badge.setFixedWidth(95)
+            header.addWidget(average_badge)
+        count = QLabel(f"{len(item['roster'])} enrolled")
+        count.setFixedWidth(90)
         header.addWidget(count)
         code_button = QPushButton("🔑 Code")
         code_button.setEnabled(bool(item.get("invite_code")))
@@ -436,15 +588,27 @@ class ModerationDialog(QDialog):
 
         roster = QTreeWidget()
         roster.setObjectName("class_roster_table")
-        roster.setColumnCount(4)
-        roster.setHeaderLabels(["Student", "Progress", "Mastery status", "Action"])
+        is_flashcard = item["kind"] == "flashcard"
+        if is_flashcard:
+            roster.setColumnCount(3)
+            roster.setHeaderLabels(["Student", "Progress", "Action"])
+            action_column = 2
+        else:
+            roster.setColumnCount(5)
+            roster.setHeaderLabels([
+                "Student", "Best / Avg Grade", "Attempts Used", "Status", "Action"
+            ])
+            action_column = 4
+        roster.headerItem().setTextAlignment(action_column, Qt.AlignmentFlag.AlignCenter)
         roster.setRootIsDecorated(False)
         roster.setAlternatingRowColors(True)
         roster.setSelectionMode(QTreeWidget.SelectionMode.NoSelection)
         roster.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        roster.setColumnWidth(0, 190)
-        roster.setColumnWidth(1, 115)
-        roster.setColumnWidth(2, 170)
+        roster.setColumnWidth(0, 130)
+        roster.setColumnWidth(1, 130)
+        roster.setColumnWidth(2, 90)
+        if not is_flashcard:
+            roster.setColumnWidth(3, 125)
         # Reserve the remaining row width for the action area instead of
         # leaving an unassigned blank strip at the right of the table.
         roster.header().setStretchLastSection(True)
@@ -454,21 +618,35 @@ class ModerationDialog(QDialog):
             user = self.users_by_id.get(student["user_id"], {})
             login = user.get("login", student["user_id"])
             mastered, total, percent = student["mastered"], student["total"], student["percent"]
-            if total and mastered == total:
-                status = "● 100% Mastered"
-            elif mastered:
-                status = f"● {percent}% In Progress"
+            if is_flashcard:
+                row_values = [login, f"{mastered} / {total}", ""]
             else:
-                status = "● 0% Not Started"
-            row = QTreeWidgetItem([login, f"{mastered} / {total}", status, ""])
-            color = "#15803D" if total and mastered == total else "#B45309" if mastered else "#B91C1C"
-            row.setForeground(2, QColor(color))
+                best = student.get("best_grade")
+                average = student.get("average_grade")
+                grades = "— / —" if best is None else f"{best:g}% / {average:g}%"
+                limit_value = int(item.get("test_settings", {}).get("attempt_limit", 0) or 0)
+                attempts = f"{student.get('attempts_used', 0)} / {'∞' if limit_value == 0 else limit_value}"
+                status = student.get("assessment_status", "Not Started")
+                unresolved = student.get("unresolved_attempt")
+                if unresolved:
+                    question = unresolved.get("last_question") or unresolved.get("current_question") or 0
+                    status = f"⚠ Abandoned (Q{question})"
+                row_values = [login, grades, attempts, status, ""]
+            row = QTreeWidgetItem(row_values)
+            # The action cell contains normal-height buttons. Without an
+            # explicit item height QTreeWidget measures only the text and
+            # vertically clips those embedded controls into flat pills.
+            for column in range(roster.columnCount()):
+                row.setSizeHint(column, QSize(-1, 48))
+            if not is_flashcard:
+                color = "#B45309" if student.get("unresolved_attempt") else "#15803D" if student.get("best_grade") is not None else "#64748B"
+                row.setForeground(3, QColor(color))
             roster.addTopLevelItem(row)
             remove = QPushButton("Remove")
             # Use the same restrained outlined-danger treatment as the
             # per-item Reset action in My Progress.
-            remove.setObjectName("profile_reset_btn")
-            remove.setFixedSize(88, 32)
+            remove.setObjectName("class_remove_button")
+            remove.setFixedSize(68, 32)
             remove.clicked.connect(
                 lambda _=False, content=item, student_id=student["user_id"], user_login=login:
                 self._confirm_remove_student(content, student_id, user_login)
@@ -478,10 +656,33 @@ class ModerationDialog(QDialog):
             # Remove buttons clear vertical breathing room.
             remove_cell = QFrame()
             remove_cell.setObjectName("class_remove_cell")
+            remove_cell.setMinimumHeight(48)
             remove_layout = QHBoxLayout(remove_cell)
-            remove_layout.setContentsMargins(12, 8, 12, 8)
-            remove_layout.addWidget(remove, 0, Qt.AlignmentFlag.AlignCenter)
-            roster.setItemWidget(row, 3, remove_cell)
+            remove_layout.setContentsMargins(2, 6, 2, 6)
+            remove_layout.setSpacing(4)
+            if not is_flashcard:
+                details = QPushButton("Details")
+                details.setObjectName("class_details_button")
+                details.setFixedSize(68, 32)
+                details.clicked.connect(
+                    lambda _=False, content=item, student_id=student["user_id"], user_login=login:
+                    self._show_student_analytics(content, student_id, user_login)
+                )
+                remove_layout.addWidget(details)
+                if student.get("unresolved_attempt"):
+                    resolve = QPushButton("Resolve")
+                    resolve.setObjectName("class_resolve_button")
+                    resolve.setFixedSize(68, 32)
+                    resolve.clicked.connect(
+                        lambda _=False, content=item, learner=student, user_login=login:
+                        self._resolve_interrupted_attempt(content, learner, user_login)
+                    )
+                    remove_layout.addWidget(resolve)
+            # Keep the same layout treatment as Details/Resolve. Supplying an
+            # alignment here makes Qt fall back to the styled size hint and
+            # compresses only the Remove control despite its fixed geometry.
+            remove_layout.addWidget(remove)
+            roster.setItemWidget(row, action_column, remove_cell)
         roster.setVisible(expanded)
         roster.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         # Let the outer Class Management scroll area handle long rosters.
@@ -509,6 +710,8 @@ class ModerationDialog(QDialog):
             more = None
 
         def toggle():
+            self._selected_class_item = item
+            self.review_settings_button.setEnabled(item["kind"] == "quiz")
             roster.setVisible(not roster.isVisible())
             expand.setText("▲" if roster.isVisible() else "▼")
             self._class_expanded[item_id] = roster.isVisible()
@@ -534,6 +737,101 @@ class ModerationDialog(QDialog):
             return
         QApplication.clipboard().setText(code)
         QToolTip.showText(QCursor.pos(), f"Code {code} copied!", self)
+
+    @staticmethod
+    def _format_due_date(value):
+        if not value:
+            return "No due date"
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return parsed.astimezone().strftime("%b %d, %H:%M")
+        except (TypeError, ValueError):
+            return "Due date unavailable"
+
+    def _show_student_analytics(self, item, student_id, login):
+        analytics = self.invites.get_quiz_analytics(item["file"], self.actor_id)
+        attempts = self.invites.get_student_attempts(item["file"], self.actor_id, student_id)
+        QuizAnalyticsDialog(item, analytics, attempts, login, self).exec()
+
+    def _resolve_interrupted_attempt(self, item, student, login):
+        attempt = student.get("unresolved_attempt")
+        if not attempt:
+            return
+        dialog = InterruptedAttemptDialog(login, attempt, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        success, message = self.invites.resolve_attempt(
+            item["file"], self.actor_id, attempt["id"], dialog.selected_action()
+        )
+        if not success:
+            QMessageBox.warning(self, "Resolve attempt", message)
+        self._refresh_classes()
+
+    def _change_answer_review_policy(self):
+        item = self._selected_class_item
+        if not item or item.get("kind") != "quiz":
+            QMessageBox.information(
+                self, "Answer review settings", "Expand a quiz first to select it."
+            )
+            return
+        options = [
+            "Immediately after submission",
+            "After the due date",
+            "Never show correct answers",
+        ]
+        values = ["immediate", "after_due_date", "never"]
+        current = item.get("test_settings", {}).get("answer_review_policy", "immediate")
+        selected, ok = QInputDialog.getItem(
+            self, "Answer review settings",
+            f"When may students review correct answers for {item['name']}?",
+            options, max(0, values.index(current) if current in values else 0), False,
+        )
+        if not ok:
+            return
+        chosen = values[options.index(selected)]
+        if chosen == "after_due_date" and not item.get("test_settings", {}).get("due_at"):
+            QMessageBox.warning(
+                self, "Due date required",
+                "Set a due date in the Quiz Editor before selecting After the due date.",
+            )
+            return
+        if self.invites.update_answer_review_policy(
+            item["file"], self.actor_id, chosen
+        ):
+            self._refresh_classes()
+
+    def _export_class_results(self):
+        classes = self.invites.get_owned_classes(
+            self.actor_id, self.class_type_filter.currentData()
+        )
+        quiz_classes = [item for item in classes if item["kind"] == "quiz"]
+        if not quiz_classes:
+            QMessageBox.information(self, "Export results", "There are no quiz results to export.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export class results", "class-results.csv", "CSV files (*.csv)"
+        )
+        if not path:
+            return
+        with open(path, "w", newline="", encoding="utf-8-sig") as output:
+            writer = csv.writer(output)
+            writer.writerow([
+                "Quiz", "Student", "Enrolled Date", "Best Score", "Average Score",
+                "Attempts Used", "Status", "Latest Completion Date",
+            ])
+            for item in quiz_classes:
+                for student in item["roster"]:
+                    user = self.users_by_id.get(student["user_id"], {})
+                    latest = student.get("latest_attempt") or {}
+                    writer.writerow([
+                        item["name"], user.get("login", student["user_id"]),
+                        student.get("enrolled_at", ""),
+                        "" if student.get("best_grade") is None else student["best_grade"],
+                        "" if student.get("average_grade") is None else student["average_grade"],
+                        student.get("attempts_used", 0), student.get("assessment_status", ""),
+                        latest.get("submitted_at", ""),
+                    ])
+        QMessageBox.information(self, "Export complete", f"Results exported to:\n{path}")
 
     def _confirm_remove_student(self, item, student_id, login):
         answer = QMessageBox.question(
@@ -632,13 +930,17 @@ class ModerationDialog(QDialog):
             return
         current_status = self.content[index].get("status")
         if status == "published":
-            if self.repo.update_status(self.content[index], status, self.actor_id):
+            if self.repo.update_status(
+                self.content[index], status, self.actor_id, actor_role=self.role
+            ):
                 self.refresh()
             return
 
         if status == "draft" and current_status == "banned":
             note = "Unbanned by an administrator. Edit the content and submit it for review again."
-            if self.repo.update_status(self.content[index], status, self.actor_id, note):
+            if self.repo.update_status(
+                self.content[index], status, self.actor_id, note, actor_role=self.role
+            ):
                 self.refresh()
             return
 
@@ -646,7 +948,9 @@ class ModerationDialog(QDialog):
         note, accepted = QInputDialog.getText(self, "Moderation decision", prompt)
         if accepted and not note.strip():
             return
-        if accepted and self.repo.update_status(self.content[index], status, self.actor_id, note):
+        if accepted and self.repo.update_status(
+            self.content[index], status, self.actor_id, note, actor_role=self.role
+        ):
             self.refresh()
 
     def _show_content_detail(self, index):
@@ -816,9 +1120,9 @@ class ModerationDialog(QDialog):
                 reason, accepted = QInputDialog.getText(self, "Suspend account", "Reason for suspension:")
                 if not accepted:
                     return
-                repository.update_status(user['id'], "banned", reason)
+                repository.set_account_status(self.role, user['id'], "banned", reason)
             else:
-                repository.update_status(user['id'], "active")
+                repository.set_account_status(self.role, user['id'], "active")
         else:
             repository.update_role(user['id'], action)
         self.refresh()

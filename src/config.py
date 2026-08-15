@@ -31,6 +31,26 @@ LIGHT_STYLE_PATH = STYLES_DIR / "style_light.qss"
 # Application Settings
 APP_NAME = "Study Buddy"
 DEFAULT_WINDOW_SIZE = (1000, 800)
+# The launcher contains substantially different amounts of content by role.
+# These defaults are used only until that guest/account manually resizes it.
+LAUNCHER_DEFAULT_SIZES = {
+    "guest": (700, 580),
+    "student": (700, 660),
+    "teacher": (760, 840),
+    "admin": (760, 840),
+}
+# Independent defaults for navigable application windows. A manually resized
+# window is stored per identity without changing the launcher's dimensions.
+WINDOW_DEFAULT_SIZES = {
+    "quiz_editor": (900, 650),
+    "flashcard_editor": (900, 650),
+    "quiz_mode": (900, 800),
+    "flashcard_mode": (750, 770),
+    "profile_statistics": (620, 700),
+    "account_settings": (520, 700),
+    "moderation_admin": (1100, 560),
+    "my_classes": (900, 480),
+}
 MAX_IMAGE_WIDTH = 600
 MAX_IMAGE_HEIGHT = 350
 

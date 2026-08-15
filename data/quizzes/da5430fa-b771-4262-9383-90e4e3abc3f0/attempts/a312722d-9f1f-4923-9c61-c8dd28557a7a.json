@@ -1,0 +1,22 @@
+{
+    "quiz_id": "da5430fa-b771-4262-9383-90e4e3abc3f0",
+    "quiz_name": "General Quiz (Copy)",
+    "user_id": "2",
+    "mode": "test",
+    "started_at": "2026-08-14T13:12:59.310108+00:00",
+    "submitted_at": "2026-08-14T13:13:08.540664+00:00",
+    "duration_seconds": 9,
+    "score": 0,
+    "total": 6,
+    "percentage": 0.0,
+    "answers": [
+        {
+            "question_id": "a6d54666",
+            "question": "The human skeleton has more than 200 bones.",
+            "type": "true_false",
+            "user_answer": false,
+            "correct_answer": true
+        }
+    ],
+    "id": "a312722d-9f1f-4923-9c61-c8dd28557a7a"
+}

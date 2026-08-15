@@ -4,6 +4,7 @@ from src.storage.flashcard_repository import FlashcardRepository
 from src.storage.invitation_repository import InvitationRepository
 from src.storage.moderation_repository import ModerationRepository
 from src.storage.quiz_repository import QuizRepository
+from src.controllers.quiz_controller import QuizController
 
 
 def test_class_only_invitation_enrols_student_and_rotation_revokes_old_code(tmp_path):
@@ -19,7 +20,9 @@ def test_class_only_invitation_enrols_student_and_rotation_revokes_old_code(tmp_
     assert "-" in code
     assert not invites.enroll_with_code(code, "student-1")[0]
 
-    assert moderation.update_status(item, "published", "admin", visibility="class_only")
+    assert moderation.update_status(
+        item, "published", "admin", visibility="class_only", actor_role="admin"
+    )
     success, message = invites.enroll_with_code(code, "student-1")
     assert success and "Math Basics" in message
 
@@ -53,7 +56,9 @@ def test_owner_roster_removal_and_progress_summary(tmp_path):
     invites = InvitationRepository(moderation)
     item = moderation.get_all_content()[0]
     flashcards.save_deck_content(item["file"], [{"id": "card-1", "front": "Q", "back": "A"}])
-    moderation.update_status(item, "published", "admin", visibility="class_only")
+    moderation.update_status(
+        item, "published", "admin", visibility="class_only", actor_role="admin"
+    )
     _, code = invites.generate_or_rotate_code(item["file"], "flashcard", "teacher-1")
     assert invites.enroll_with_code(code, "student-1")[0]
     flashcards.save_deck_progress(item["file"], {"card-1": {"mastered": True}}, "student-1")
@@ -82,8 +87,62 @@ def test_invalid_and_unavailable_codes_cannot_enroll_or_appear_in_roster(tmp_pat
     assert not invites.enroll_with_code(code, "student-1")[0]  # still a draft
     assert invites.get_owned_classes("teacher-1") == []
 
-    moderation.update_status(item, "published", "admin", visibility="class_only")
+    moderation.update_status(
+        item, "published", "admin", visibility="class_only", actor_role="admin"
+    )
     assert invites.enroll_with_code(code, "student-1")[0]
-    moderation.update_status(item, "banned", "admin")
+    moderation.update_status(item, "banned", "admin", actor_role="admin")
     assert not invites.enroll_with_code(code, "student-2")[0]
     assert invites.get_owned_classes("teacher-1") == []
+
+
+def test_quiz_roster_reports_grades_attempts_and_question_analytics(tmp_path):
+    flashcards = FlashcardRepository(tmp_path / "flashcards", tmp_path / "decks.json")
+    quizzes = QuizRepository(tmp_path / "quizzes", tmp_path / "quizzes.json")
+    quizzes.create_quiz(
+        "Assessment", [
+            {"id": "q1", "type": "short_answer", "question": "Capital?", "answer": "Ottawa"},
+            {"id": "q2", "type": "short_answer", "question": "Organ?", "answer": "Heart"},
+        ], owner_id="teacher-1", test_settings={"attempt_limit": 3},
+    )
+    moderation = ModerationRepository(flashcards, quizzes)
+    invites = InvitationRepository(moderation)
+    item = moderation.get_all_content()[0]
+    moderation.update_status(
+        item, "published", "admin", visibility="class_only", actor_role="admin"
+    )
+    _, code = invites.generate_or_rotate_code(item["file"], "quiz", "teacher-1")
+    assert invites.enroll_with_code(code, "student-1")[0]
+
+    controller = QuizController("student-1", quizzes, role="student")
+    controller.load_quiz_by_name("Assessment", mode="test")
+    while controller.quiz.current_card is not None:
+        answer = controller.quiz.current_card.answer
+        if controller.submit_answer(answer)["type"] == "review":
+            break
+    controller.finalize_test_attempt()
+
+    roster = invites.get_owned_classes("teacher-1")[0]
+    student = roster["roster"][0]
+    assert student["best_grade"] == 100.0
+    assert student["average_grade"] == 100.0
+    assert student["attempts_used"] == 1
+    assert student["assessment_status"] == "Finished"
+    assert roster["class_average"] == 100.0
+    analytics = invites.get_quiz_analytics(item["file"], "teacher-1")
+    assert [row["correct_rate"] for row in analytics] == [100.0, 100.0]
+
+
+def test_teacher_controls_answer_review_policy(tmp_path):
+    flashcards = FlashcardRepository(tmp_path / "flashcards", tmp_path / "decks.json")
+    quizzes = QuizRepository(tmp_path / "quizzes", tmp_path / "quizzes.json")
+    quizzes.create_quiz("Review Rules", owner_id="teacher-1")
+    moderation = ModerationRepository(flashcards, quizzes)
+    invites = InvitationRepository(moderation)
+    item = moderation.get_all_content()[0]
+    assert invites.update_answer_review_policy(
+        item["file"], "teacher-1", "after_due_date"
+    )
+    assert quizzes.get_test_settings(item["file"])["answer_review_policy"] == "after_due_date"
+    assert not invites.update_answer_review_policy(item["file"], "teacher-2", "never")
+    assert not invites.update_answer_review_policy(item["file"], "teacher-1", "invalid")

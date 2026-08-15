@@ -56,3 +56,57 @@ def test_completed_deck_can_be_reset_and_started_again(tmp_path):
     assert controller.reset_deck_progress("Complete") is True
     assert controller.is_deck_complete("Complete") is False
     assert controller.start_deck("Complete")["id"] == "only"
+
+
+def test_flashcard_controller_handles_missing_session_and_deck(tmp_path):
+    repo = FlashcardRepository(tmp_path / "flashcards", tmp_path / "decks.json")
+    controller = FlashcardController("student-1", repo)
+
+    assert controller.get_deck_names() == []
+    assert controller.get_deck_summary("Missing") is None
+    assert controller.is_deck_complete("Missing") is False
+    assert controller.reset_deck_progress("Missing") is False
+    assert controller.start_deck("Missing") is None
+    assert controller.process_answer(True) is None
+    assert controller.toggle_current_card_mastery() is None
+    assert controller.get_progress_string() == ""
+    assert controller.get_session_summary() == ""
+
+
+def test_flashcard_controller_records_answers_and_ends_session(tmp_path):
+    repo = FlashcardRepository(tmp_path / "flashcards", tmp_path / "decks.json")
+    repo.create_deck("One Card", [{"id": "only", "front": "Q", "back": "A"}])
+    deck = repo.get_all_decks()[0]
+    controller = FlashcardController("student-1", repo)
+
+    assert controller.start_deck("One Card")["id"] == "only"
+    summary = controller.get_session_summary()
+    assert summary == {"known": 0, "unknown": 0, "mastered": 0, "total_cards": 1}
+    # A wrong answer deliberately requeues the card for another learning pass.
+    assert controller.process_answer(False)["id"] == "only"
+    assert repo.get_progress(deck["file"], "student-1")["only"]["wrong"] == 1
+
+    controller.end_session()
+    assert controller.session is None
+    assert controller.current_deck_id == ""
+
+
+def test_flashcard_controller_join_policy_delegates_for_signed_in_user(tmp_path, monkeypatch):
+    repo = FlashcardRepository(tmp_path / "flashcards", tmp_path / "decks.json")
+    guest = FlashcardController("guest", repo)
+    assert guest.join_with_code("CODE") == (
+        False,
+        "Sign in to join a class with an invitation code.",
+    )
+
+    calls = []
+
+    class Invitations:
+        def enroll_with_code(self, code, user_id):
+            calls.append((code, user_id))
+            return True, "Enrolled"
+
+    monkeypatch.setattr("src.controllers.flashcard_controller.InvitationRepository", Invitations)
+    student = FlashcardController("student-1", repo)
+    assert student.join_with_code("ABCD-234") == (True, "Enrolled")
+    assert calls == [("ABCD-234", "student-1")]

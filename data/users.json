@@ -8,7 +8,17 @@
             "name": "Admin User",
             "preferences": {
                 "theme": "light",
-                "language": "en"
+                "language": "en",
+                "launcher_size": [
+                    760,
+                    940
+                ],
+                "window_sizes": {
+                    "quiz_editor": [
+                        954,
+                        705
+                    ]
+                }
             },
             "status": "active",
             "ban_reason": "",
@@ -21,7 +31,7 @@
             "password": "pbkdf2_sha256$210000$a1719859afc31874609ed90a766a0831$c25c40699ce195c0db17feeaf21ec25cbd65eed582d934fb36e08779ec3fae48",
             "name": "Student User",
             "preferences": {
-                "theme": "dark",
+                "theme": "light",
                 "language": "en"
             },
             "status": "active",

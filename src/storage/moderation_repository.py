@@ -11,6 +11,8 @@ from src.logic.access_control import (
     default_visibility_for_status,
     is_content_status,
     is_visibility,
+    can_moderate_content,
+    can_edit_content,
 )
 
 
@@ -34,10 +36,24 @@ class ModerationRepository:
                 metadata, changed = self._metadata(data)
                 if changed:
                     file.write_text(json.dumps(data, indent=4), encoding="utf-8")
-                items.append({"kind": kind, "name": entry["name"], "file": entry["file"], "path": file, **metadata})
+                item = {"kind": kind, "name": entry["name"], "file": entry["file"], "path": file, **metadata}
+                if kind == "quiz":
+                    from src.logic.test_settings import normalize_test_settings
+                    item["test_settings"] = normalize_test_settings(data.get("test_settings"))
+                items.append(item)
         return items
 
-    def update_status(self, item, status, actor_id, note="", visibility=None):
+    def update_status(
+        self, item, status, actor_id, note="", visibility=None, *, actor_role=None
+    ):
+        owns_content = str(item.get("owner_id")) == str(actor_id)
+        may_submit_own_work = (
+            can_edit_content(actor_role, owns_content)
+            and actor_role == "teacher"
+            and status in {"draft", "pending_review"}
+        )
+        if not can_moderate_content(actor_role) and not may_submit_own_work:
+            return False
         if not is_content_status(status):
             return False
         if visibility is not None and not is_visibility(visibility):
@@ -55,7 +71,10 @@ class ModerationRepository:
         history.write_text(json.dumps(entries, indent=4), encoding="utf-8")
         return True
 
-    def set_content_status(self, relative_path, kind, status, actor_id, note="", visibility=None):
+    def set_content_status(
+        self, relative_path, kind, status, actor_id, note="", visibility=None,
+        *, actor_role=None,
+    ):
         """Set a lifecycle status from an editor without exposing file paths to UI."""
         item = next(
             (
@@ -64,7 +83,9 @@ class ModerationRepository:
             ),
             None,
         )
-        return bool(item and self.update_status(item, status, actor_id, note, visibility))
+        return bool(item and self.update_status(
+            item, status, actor_id, note, visibility, actor_role=actor_role
+        ))
 
     def get_content_for_user(self, user_id, role):
         """Return only content that may be opened in a study session.
@@ -132,7 +153,14 @@ class ModerationRepository:
     def _metadata(data):
         metadata = data.setdefault("moderation", {})
         changed = False
-        defaults = {"owner_id": "legacy", "status": "published", "allowed_user_ids": [], "reviewed_by": None, "reviewed_at": None, "review_note": ""}
+        defaults = {
+            "owner_id": "legacy",
+            "status": "published",
+            "allowed_user_ids": [],
+            "reviewed_by": None,
+            "reviewed_at": None,
+            "review_note": "",
+        }
         for key, value in defaults.items():
             if key not in metadata:
                 metadata[key] = value

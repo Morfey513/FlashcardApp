@@ -57,3 +57,23 @@ class AppSettings:
         """Set language and save."""
         self.settings["language"] = lang
         self.save()
+
+    def get_launcher_size(self):
+        """Return the guest launcher's saved size, if one is available."""
+        return self.settings.get("launcher_size")
+
+    def set_launcher_size(self, width: int, height: int):
+        """Persist the locally shared guest launcher size."""
+        self.settings["launcher_size"] = [int(width), int(height)]
+        self.save()
+
+    def get_window_size(self, key: str):
+        """Return one guest window's saved size, if available."""
+        values = self.settings.get("window_sizes", {})
+        return values.get(key) if isinstance(values, dict) else None
+
+    def set_window_size(self, key: str, width: int, height: int):
+        """Persist a guest window size independently from the launcher."""
+        values = self.settings.setdefault("window_sizes", {})
+        values[str(key)] = [int(width), int(height)]
+        self.save()

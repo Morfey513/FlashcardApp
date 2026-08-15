@@ -18,5 +18,10 @@
         "id": "62a23948-edff-4725-9623-b174e1fe084b",
         "name": "General Quiz (Copy) (Copy)asd",
         "file": "data/quizzes/62a23948-edff-4725-9623-b174e1fe084b/quiz.json"
+    },
+    {
+        "id": "1c488885-9745-4155-b30f-4ab3e2b507c5",
+        "name": "qweac",
+        "file": "data/quizzes/1c488885-9745-4155-b30f-4ab3e2b507c5/quiz.json"
     }
 ]

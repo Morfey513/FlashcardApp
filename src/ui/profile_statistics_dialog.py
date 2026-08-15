@@ -16,7 +16,8 @@ class ProfileStatisticsDialog(QDialog):
         self.translator = get_translator()
         self._expanded = {}
         self._visible_limits = {}
-        self.setFixedSize(620, 700)
+        self.resize(620, 700)
+        self.setMinimumSize(540, 560)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._init_ui()
@@ -30,6 +31,13 @@ class ProfileStatisticsDialog(QDialog):
         panel.setObjectName("login_glass_panel")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(26, 22, 26, 22)
+        header = QHBoxLayout()
+        self.close_btn = QPushButton()
+        self.close_btn.setObjectName("mode_back_btn")
+        self.close_btn.clicked.connect(self.accept)
+        header.addWidget(self.close_btn)
+        header.addStretch()
+        layout.addLayout(header)
         self.title = QLabel()
         self.title.setObjectName("login_title")
         self.title.setCursor(Qt.CursorShape.SizeAllCursor)
@@ -75,10 +83,6 @@ class ProfileStatisticsDialog(QDialog):
         footer.addLayout(secondary_actions)
         footer.addWidget(self.clear_all_btn)
         layout.addLayout(footer)
-        self.close_btn = QPushButton()
-        self.close_btn.setObjectName("login_link")
-        self.close_btn.clicked.connect(self.accept)
-        layout.addWidget(self.close_btn, alignment=Qt.AlignmentFlag.AlignRight)
         outer.addWidget(panel)
 
     def refresh_statistics(self):
@@ -206,7 +210,7 @@ class ProfileStatisticsDialog(QDialog):
         self.reset_flashcards_btn.setText(t.t("profile_statistics.btn_reset_flashcards"))
         self.reset_quizzes_btn.setText(t.t("profile_statistics.btn_reset_quizzes"))
         self.clear_all_btn.setText(t.t("profile_statistics.btn_clear_all"))
-        self.close_btn.setText(t.t("profile_statistics.btn_close"))
+        self.close_btn.setText("← " + t.t("profile_statistics.btn_close"))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

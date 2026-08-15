@@ -1,4 +1,5 @@
 from src.logic.user_session import UserSession
+from src.controllers.main_controller import MainController
 from src.storage.user_repository import UserRepository
 
 
@@ -36,6 +37,44 @@ def test_registration_creates_student_with_isolated_preferences(tmp_path):
     assert repo.save_preferences(user["id"], {"theme": "light", "language": "fr"})
     saved = next(item for item in repo.get_all_users() if item["id"] == user["id"])
     assert saved["preferences"] == {"theme": "light", "language": "fr"}
+
+
+def test_user_preferences_preserve_launcher_size(tmp_path):
+    repo = UserRepository(tmp_path / "users.json")
+    created, _message, user = repo.register("Sized User", "sized.user", "password1")
+    assert created
+
+    preferences = dict(user["preferences"])
+    preferences["launcher_size"] = [820, 740]
+    assert repo.save_preferences(user["id"], preferences)
+
+    # A later theme change sends the complete in-session preference mapping;
+    # saving it must retain the independent geometry value.
+    preferences["theme"] = "light"
+    assert repo.save_preferences(user["id"], preferences)
+    saved = next(item for item in repo.get_all_users() if item["id"] == user["id"])
+    assert saved["preferences"]["launcher_size"] == [820, 740]
+    assert saved["preferences"]["theme"] == "light"
+
+
+def test_subwindow_size_is_isolated_per_authenticated_user(tmp_path):
+    repo = UserRepository(tmp_path / "users.json")
+    created, _message, first = repo.register("First", "first.user", "password1")
+    assert created
+    created, _message, second = repo.register("Second", "second.user", "password1")
+    assert created
+
+    controller = MainController()
+    controller.user_repo = repo
+    controller.session.login(repo.authenticate("first.user", "password1"))
+    controller.set_window_size("quiz_editor", 880, 640)
+    assert controller.get_window_size("quiz_editor") == (880, 640)
+
+    controller.session.login(repo.authenticate("second.user", "password1"))
+    assert controller.get_window_size("quiz_editor") == (900, 650)
+
+    controller.session.login(repo.authenticate("first.user", "password1"))
+    assert controller.get_window_size("quiz_editor") == (880, 640)
 
 
 def test_user_can_change_display_name_and_password_with_current_password(tmp_path):

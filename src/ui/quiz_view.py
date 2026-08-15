@@ -8,12 +8,15 @@ from PyQt6.QtWidgets import (
     QToolButton
 )
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
 
 from src.config import MAX_IMAGE_WIDTH, MAX_IMAGE_HEIGHT
 from src.controllers.quiz_controller import QuizController
 from src.logic.translator import get_translator
-from src.ui.join_with_code_dialog import JoinWithCodeDialog
+from src.ui.join_with_code_dialog import (
+    configure_join_with_code_button,
+    run_join_with_code_flow,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +31,7 @@ class QuizListRow(QFrame):
         super().__init__()
         self.quiz_name = quiz["name"]
         self.setObjectName("quiz_list_row")
+        self.setProperty("selected", False)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumHeight(54)
         layout = QHBoxLayout(self)
@@ -52,14 +56,21 @@ class QuizListRow(QFrame):
         count.setMinimumWidth(110)
         layout.addWidget(count)
 
+        latest = quiz.get("latest_test_percentage")
+        latest_grade = QLabel("No test yet" if latest is None else f"Latest: {latest:g}%")
+        latest_grade.setObjectName("quiz_latest_test")
+        latest_grade.setMinimumWidth(85)
+        layout.addWidget(latest_grade)
+
         status = quiz.get("moderation_status", "published")
+        displayed_status = quiz.get("visibility", "public") if status == "published" else status
         is_actionable = quiz.get("can_view_moderation_reason", quiz.get("is_owner")) and status in {"rejected", "banned"}
         chip = QPushButton(
             f"{status.replace('_', ' ').title()} (info)" if is_actionable
-            else status.replace("_", " ").title()
+            else displayed_status.replace("_", "-").title()
         )
         chip.setObjectName("content_status_chip")
-        chip.setProperty("content_status", status)
+        chip.setProperty("content_status", displayed_status)
         chip.setProperty("interactive", is_actionable)
         chip.setFixedSize(120, 30)
         if is_actionable:
@@ -79,6 +90,12 @@ class QuizListRow(QFrame):
         self.selected.emit(self.quiz_name)
         super().mousePressEvent(event)
 
+    def set_selected(self, selected):
+        """Refresh QSS for this custom row when its list item is selected."""
+        self.setProperty("selected", selected)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
 
 class QuizViewer(QWidget):
     finished = pyqtSignal()
@@ -92,6 +109,9 @@ class QuizViewer(QWidget):
         self.return_to_review = False
         self.answer_group = []
         self.answer_input = None
+        self.countdown_timer = QTimer(self)
+        self.countdown_timer.setInterval(1000)
+        self.countdown_timer.timeout.connect(self._update_test_countdown)
 
         self.stack = QStackedLayout()
         self.setLayout(self.stack)
@@ -115,7 +135,8 @@ class QuizViewer(QWidget):
 
         # Menu Panel
         self.menu_title_label.setText(t.t(f"{sec}.menu_title"))
-        self.start_quiz_btn.setText(t.t(f"{sec}.btn_start_quiz"))
+        self.start_quiz_btn.setText("📖 Practice")
+        self.take_test_btn.setText("📝 Take Test")
         self.return_launcher_btn.setText("← " + t.t(f"{sec}.btn_return_launcher"))
         self.manage_progress_btn.setText(t.t(f"{sec}.btn_manage_progress"))
         self.join_with_code_btn.setText("🔑 Join with Code")
@@ -192,7 +213,7 @@ class QuizViewer(QWidget):
         if self.answer_input:
             self.answer_input.setFocus()
 
-    def start_quiz_from_selection(self):
+    def start_quiz_from_selection(self, mode="practice"):
         item = self.quiz_list.currentItem()
         if not item:
             QMessageBox.warning(self,
@@ -201,16 +222,67 @@ class QuizViewer(QWidget):
             return
 
         quiz_name = item.data(Qt.ItemDataRole.UserRole) or item.text()
-        if self.controller.is_quiz_complete(quiz_name):
+        if mode == "test":
+            policy = self.controller.get_test_policy(quiz_name)
+            if policy and policy.get("due_expired"):
+                QMessageBox.information(
+                    self,
+                    "Test closed",
+                    f"The due date for this Class-Only test has passed.\n\nDue: {policy.get('due_at')}",
+                )
+                self.update_quiz_selection(item, None)
+                return
+            if not policy or policy["completed"]:
+                QMessageBox.information(
+                    self,
+                    "Attempt limit reached",
+                    "You have used all allowed attempts for this Class-Only test.",
+                )
+                self.update_quiz_selection(item, None)
+                return
+            if policy.get("unresolved_attempt"):
+                QMessageBox.information(
+                    self,
+                    "Interrupted attempt pending",
+                    "A previous attempt was interrupted and must be resolved by your teacher "
+                    "before another attempt can begin.",
+                )
+                return
+            if policy["class_only"] and not self.confirm_class_test_start(quiz_name, policy):
+                return
+        if mode == "practice" and self.controller.is_quiz_complete(quiz_name):
             if not self.confirm_completed_quiz_reset(quiz_name):
                 return
             self.controller.reset_quiz_progress(quiz_name)
 
-        first_card = self.controller.load_quiz_by_name(quiz_name)
+        first_card = self.controller.load_quiz_by_name(quiz_name, mode=mode)
         if first_card:
             self.return_to_review = False
             self.update_ui_with_question(first_card)
             self.stack.setCurrentWidget(self.quiz_panel)
+            self._start_test_countdown()
+
+    def confirm_class_test_start(self, quiz_name, policy):
+        due_text = policy.get("due_at") or "Not configured"
+        minutes = policy.get("time_limit_minutes")
+        time_text = f"{minutes} minutes" if minutes else "No time limit"
+        limit = policy.get("attempt_limit", 0)
+        attempts_text = (
+            "Unlimited"
+            if limit == 0
+            else f"{policy.get('attempts_remaining', limit)} of {limit} remaining"
+        )
+        return QMessageBox.question(
+            self,
+            "Start Class-Only test?",
+            f"{quiz_name}\n\n"
+            f"Attempts: {attempts_text}\n"
+            f"Passing grade: {policy.get('passing_grade_percent', 80)}%\n\n"
+            f"Due date: {due_text}\n"
+            f"Time limit: {time_text}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) == QMessageBox.StandardButton.Yes
 
     def confirm_completed_quiz_reset(self, quiz_name):
         t = self.translator
@@ -264,6 +336,13 @@ class QuizViewer(QWidget):
         self.return_launcher_btn.clicked.connect(self.return_to_main)
         header.addWidget(self.return_launcher_btn)
         header.addStretch()
+        self.join_with_code_btn = QPushButton("🔑 Join with Code")
+        configure_join_with_code_button(
+            self.join_with_code_btn,
+            self.controller.user_id,
+            self.join_with_code,
+        )
+        header.addWidget(self.join_with_code_btn)
         layout.addLayout(header)
 
         self.menu_title_label = QLabel()
@@ -273,7 +352,10 @@ class QuizViewer(QWidget):
         self.quiz_list = QListWidget()
         self.quiz_list.setObjectName("quiz_learning_list")
         self.refresh_quiz_list()
-        self.quiz_list.itemDoubleClicked.connect(self.start_quiz_from_selection)
+        self.quiz_list.currentItemChanged.connect(self.update_quiz_selection)
+        self.quiz_list.itemDoubleClicked.connect(
+            lambda _item: self.start_quiz_from_selection("practice")
+        )
         layout.addWidget(self.quiz_list)
 
         btn_container = QHBoxLayout()
@@ -281,30 +363,23 @@ class QuizViewer(QWidget):
         self.manage_progress_btn.clicked.connect(self.show_manage_progress)
         self.start_quiz_btn = QPushButton()
         self.start_quiz_btn.setFixedSize(250, 60)
-        self.start_quiz_btn.clicked.connect(self.start_quiz_from_selection)
-        self.join_with_code_btn = QPushButton()
-        self.join_with_code_btn.setFixedSize(250, 60)
-        self.join_with_code_btn.clicked.connect(self.join_with_code)
-        self.join_with_code_btn.setEnabled(self.controller.user_id != "guest")
-        if self.controller.user_id == "guest":
-            self.join_with_code_btn.setToolTip("Sign in to join class-only content.")
+        self.start_quiz_btn.clicked.connect(
+            lambda: self.start_quiz_from_selection("practice")
+        )
+        self.take_test_btn = QPushButton()
+        self.take_test_btn.setFixedSize(250, 60)
+        self.take_test_btn.clicked.connect(
+            lambda: self.start_quiz_from_selection("test")
+        )
 
         btn_container.addWidget(self.manage_progress_btn)
-        btn_container.addWidget(self.join_with_code_btn)
         btn_container.addWidget(self.start_quiz_btn)
+        btn_container.addWidget(self.take_test_btn)
         layout.addLayout(btn_container)
         self.stack.addWidget(self.menu_panel)
 
     def join_with_code(self):
-        code = JoinWithCodeDialog.get_code(self)
-        if code is None:
-            return
-        success, message = self.controller.join_with_code(code)
-        if success:
-            self.refresh_quiz_list()
-            QMessageBox.information(self, "Enrollment complete", message)
-        else:
-            QMessageBox.warning(self, "Unable to enroll", message)
+        run_join_with_code_flow(self, self.controller, self.refresh_quiz_list)
 
     def init_quiz_panel(self):
         self.quiz_panel = QFrame()
@@ -323,7 +398,14 @@ class QuizViewer(QWidget):
 
         self.progress_label = QLabel()
         self.progress_label.setObjectName("progress")
-        main_layout.addWidget(self.progress_label)
+        progress_row = QHBoxLayout()
+        progress_row.addWidget(self.progress_label)
+        progress_row.addStretch()
+        self.test_timer_label = QLabel()
+        self.test_timer_label.setObjectName("test_timer_label")
+        self.test_timer_label.hide()
+        progress_row.addWidget(self.test_timer_label)
+        main_layout.addLayout(progress_row)
 
         self.question_label = QLabel()
         self.question_label.setObjectName("question")
@@ -496,33 +578,55 @@ class QuizViewer(QWidget):
             combo.style().unpolish(combo)
             combo.style().polish(combo)
 
-    def show_results(self):
+    def show_results(self, attempt_status="submitted"):
         t = self.translator
+        self.countdown_timer.stop()
+        self.test_timer_label.hide()
         stats = self.controller.get_final_results()
+        attempt = self.controller.finalize_test_attempt(status=attempt_status)
 
         score_label = t.t("quiz_view.result_score")
+        assessment_result = ""
+        if attempt:
+            if attempt["passed"] is None:
+                assessment_result = f"  •  Saved Test  •  {attempt['duration_seconds']}s"
+            else:
+                assessment_result = (
+                    f"  •  {'PASSED' if attempt['passed'] else 'NOT PASSED'}"
+                    f"  •  Required: {attempt['passing_grade_percent']}%"
+                    f"  •  {attempt['duration_seconds']}s"
+                )
         self.result_label.setText(
             f"{score_label}: {stats['score']}/{stats['total']} ({stats['percent']}%)"
+            + assessment_result
         )
 
         label_your_answer = t.t("quiz_view.result_your_answer")
         label_correct = t.t("quiz_view.result_correct")
 
         self.clear_layout(self.result_list_layout)
+        show_correct_answers = self.controller.can_show_correct_answers()
         for item in stats["results"]:
             row = QHBoxLayout()
             details = QLabel(
                 f"<p><strong>{item['question']}</strong></p>"
                 f"<p><i>{label_your_answer}:</i> {item['user_answer']}</p>"
-                f"<p><i>{label_correct}:</i> {item['correct_answer']}</p>"
-                f"<p><i>Attempts:</i> {item['stats']['correct']} correct, "
-                f"{item['stats']['wrong']} wrong</p>"
+                + (
+                    f"<p><i>{label_correct}:</i> {item['correct_answer']}</p>"
+                    if show_correct_answers
+                    else "<p><i>Correct-answer review is currently hidden by the teacher.</i></p>"
+                )
+                + (
+                    f"<p><i>Attempts:</i> {item['stats']['correct']} correct, "
+                    f"{item['stats']['wrong']} wrong</p>"
+                    if not self.controller.is_test_mode else ""
+                )
             )
             details.setWordWrap(True)
             details.setTextFormat(Qt.TextFormat.RichText)
             row.addWidget(details, 1)
 
-            if item["mastered"] or item["can_master"]:
+            if not self.controller.is_test_mode and (item["mastered"] or item["can_master"]):
                 mastery_btn = QPushButton(
                     t.t("quiz_view.btn_unmaster_question")
                     if item["mastered"]
@@ -631,6 +735,8 @@ class QuizViewer(QWidget):
                         return None
 
                     card_type = self.controller.get_current_card_type()
+                    if card_type == "true_false":
+                        return selected[0] == self.translator.t("quiz_view.option_true")
                     return selected if card_type == "multiple_choice" else selected[0]
 
                 # Selection-based
@@ -663,11 +769,47 @@ class QuizViewer(QWidget):
             self.update_ui_with_question(next_card)
 
     def return_to_main(self):
+        self.controller.abandon_test_attempt()
         self.finished.emit()
 
     def return_to_menu(self):
+        self.controller.abandon_test_attempt()
+        self.countdown_timer.stop()
+        self.test_timer_label.hide()
         self.refresh_quiz_list()
         self.stack.setCurrentWidget(self.menu_panel)
+
+    def closeEvent(self, event):
+        self.controller.abandon_test_attempt()
+        super().closeEvent(event)
+
+    def _start_test_countdown(self):
+        remaining = self.controller.get_remaining_test_seconds()
+        if remaining is None:
+            self.countdown_timer.stop()
+            self.test_timer_label.hide()
+            return
+        self.test_timer_label.show()
+        self._update_test_countdown()
+        if remaining > 0:
+            self.countdown_timer.start()
+
+    def _update_test_countdown(self):
+        remaining = self.controller.get_remaining_test_seconds()
+        if remaining is None:
+            self.countdown_timer.stop()
+            self.test_timer_label.hide()
+            return
+        minutes, seconds = divmod(remaining, 60)
+        self.test_timer_label.setText(f"⏱ {minutes:02d}:{seconds:02d}")
+        if remaining <= 0:
+            self.countdown_timer.stop()
+            QMessageBox.information(
+                self,
+                "Time limit reached",
+                "Your available answers will now be submitted automatically.",
+            )
+            self.show_results(attempt_status="timed_out")
 
     def reset_quiz_progress(self, quiz_name):
         t = self.translator
@@ -722,6 +864,7 @@ class QuizViewer(QWidget):
     def refresh_quiz_list(self):
         """Helper to sync the list with the repository index."""
         self.quiz_list.clear()
+        self.quiz_rows = {}
         t = self.translator
         for quiz in self.controller.get_quiz_summaries():
             row = QuizListRow(quiz, t.t("quiz_view.quiz_progress", mastered=quiz["mastered"], total=quiz["total"]))
@@ -730,6 +873,7 @@ class QuizViewer(QWidget):
             item.setSizeHint(QSize(0, 58))
             self.quiz_list.addItem(item)
             self.quiz_list.setItemWidget(item, row)
+            self.quiz_rows[quiz["name"]] = row
             row.selected.connect(lambda name, current=item: self.select_quiz(name, current))
             row.moderation_clicked.connect(self.show_moderation_reason)
         if self.quiz_list.count():
@@ -738,6 +882,25 @@ class QuizViewer(QWidget):
     def select_quiz(self, quiz_name, item):
         if quiz_name:
             self.quiz_list.setCurrentItem(item)
+
+    def update_quiz_selection(self, current, _previous):
+        """Keep the selected styling of custom quiz rows in sync."""
+        selected_name = current.data(Qt.ItemDataRole.UserRole) if current else None
+        for name, row in getattr(self, "quiz_rows", {}).items():
+            row.set_selected(name == selected_name)
+        if hasattr(self, "take_test_btn"):
+            self.take_test_btn.setEnabled(
+                bool(selected_name and self.controller.can_start_test(selected_name))
+            )
+            policy = self.controller.get_test_policy(selected_name) if selected_name else None
+            if policy and policy["completed"]:
+                self.take_test_btn.setToolTip(
+                    "The configured attempt limit has been reached for this Class-Only test."
+                )
+            elif policy and policy.get("due_expired"):
+                self.take_test_btn.setToolTip("The due date for this Class-Only test has passed.")
+            else:
+                self.take_test_btn.setToolTip("")
 
     def show_moderation_reason(self, status, reason):
         if status not in {"rejected", "banned"}:

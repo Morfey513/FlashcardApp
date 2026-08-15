@@ -1,0 +1,40 @@
+{
+    "quiz_id": "62a23948-edff-4725-9623-b174e1fe084b",
+    "quiz_name": "General Quiz (Copy) (Copy)asd",
+    "user_id": "2",
+    "mode": "test",
+    "started_at": "2026-08-14T13:29:43.276159+00:00",
+    "submitted_at": "2026-08-14T13:29:50.536253+00:00",
+    "duration_seconds": 7,
+    "score": 1,
+    "total": 6,
+    "percentage": 16.7,
+    "answers": [
+        {
+            "question_id": "266f27c9-e0f2-4248-8088-8343108d7c04",
+            "question": "Match country to capital:",
+            "type": "matching",
+            "user_answer": [
+                {
+                    "prompt": "Spain",
+                    "answer": "Madrid"
+                },
+                {
+                    "prompt": "Norway",
+                    "answer": "Oslo"
+                }
+            ],
+            "correct_answer": [
+                {
+                    "prompt": "Spain",
+                    "answer": "Madrid"
+                },
+                {
+                    "prompt": "Norway",
+                    "answer": "Oslo"
+                }
+            ]
+        }
+    ],
+    "id": "efb5886d-4a58-465a-a55e-0cf28762b301"
+}

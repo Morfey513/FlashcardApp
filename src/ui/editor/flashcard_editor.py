@@ -5,7 +5,7 @@ from functools import partial
 
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
-    QListWidget, QListWidgetItem, QLineEdit, QScrollArea, QStackedLayout, QFrame,
+    QListWidget, QListWidgetItem, QLineEdit, QStackedLayout, QFrame,
     QMessageBox, QTextEdit, QInputDialog, QFileDialog, QToolButton, QComboBox, QApplication, QToolTip
 )
 from PyQt6.QtGui import QPixmap, QCursor
@@ -15,6 +15,7 @@ from src.config import AUDIO_DIR, IMAGE_DIR
 from src.controllers.flashcard_editor_controller import FlashcardEditorController
 from src.logic.access_control import VISIBILITIES, VISIBILITY_LABELS, default_visibility_for_status
 from src.logic.translator import get_translator
+from src.ui.auto_scroll import AutoScrollArea
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class FlashcardEditor(QWidget):
         self.controller = controller
         self.translator = get_translator()
         self.resize(900, 700)
+        self.setMinimumSize(700, 560)
 
         # UI State
         self.has_unsaved_changes = False
@@ -95,7 +97,7 @@ class FlashcardEditor(QWidget):
         self.deck_menu_panel = QFrame()
         layout = QVBoxLayout(self.deck_menu_panel)
         layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(20)
+        layout.setSpacing(14)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
 
         self.deck_menu_title = QLabel()
@@ -117,17 +119,17 @@ class FlashcardEditor(QWidget):
 
         self.deck_list = QListWidget()
         self.deck_list.setObjectName("editor_deck_list")
-        self.deck_list.setMinimumHeight(300)
+        # Let the list absorb window-height changes while the navigation
+        # button remains a separate footer below it.
+        self.deck_list.setMinimumHeight(160)
         self.deck_list.itemDoubleClicked.connect(self.edit_selected_deck)
         self.deck_list.currentRowChanged.connect(lambda _row: self._sync_inline_selection(self.deck_list))
-        layout.addWidget(self.deck_list)
+        layout.addWidget(self.deck_list, stretch=1)
 
         self.back_to_main_btn = QPushButton()
         self.back_to_main_btn.setMinimumWidth(200)
         self.back_to_main_btn.clicked.connect(self.return_to_main)
         layout.addWidget(self.back_to_main_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        layout.addStretch()
 
         self.stack.addWidget(self.deck_menu_panel)
         self.refresh_deck_list()
@@ -214,7 +216,7 @@ class FlashcardEditor(QWidget):
     def init_card_editor_panel(self):
         self.card_editor_panel = QFrame()
 
-        scroll = QScrollArea()
+        scroll = AutoScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -358,6 +360,8 @@ class FlashcardEditor(QWidget):
         layout.addLayout(btn_layout)
 
         scroll.setWidget(content_widget)
+        scroll.track_auto_scroll_content(content_widget)
+        scroll.setToolTip("Middle-click to auto-scroll; press Escape to stop")
         panel_layout = QVBoxLayout(self.card_editor_panel)
         panel_layout.setContentsMargins(0, 0, 0, 0)
         panel_layout.addWidget(scroll)

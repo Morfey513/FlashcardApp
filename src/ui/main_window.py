@@ -3,9 +3,9 @@
 import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLabel,
-    QApplication, QStackedWidget, QMessageBox, QFrame
+    QApplication, QStackedWidget, QMessageBox, QFrame, QLayout
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, Qt, QTimer
 
 from src.controllers.main_controller import MainController
 from src.logic.translator import get_translator
@@ -22,8 +22,23 @@ logger = logging.getLogger(__name__)
 class MainLauncher(QWidget):
     """Main application window with authentication and settings."""
 
+    MANAGED_WINDOW_KEYS = {
+        "QuizEditor": "quiz_editor",
+        "FlashcardEditor": "flashcard_editor",
+        "QuizViewer": "quiz_mode",
+        "FlashcardViewer": "flashcard_mode",
+    }
+
     def __init__(self, dark_path, light_path):
         super().__init__()
+
+        self._applying_launcher_size = False
+        self._launcher_size_dirty = False
+        self._launcher_restore_generation = 0
+        self._launcher_size_timer = QTimer(self)
+        self._launcher_size_timer.setSingleShot(True)
+        self._launcher_size_timer.setInterval(350)
+        self._launcher_size_timer.timeout.connect(self._save_launcher_size)
 
         # Paths for themes
         self.dark_path = dark_path
@@ -53,6 +68,10 @@ class MainLauncher(QWidget):
         self.stack = QStackedWidget()
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
+        # The visible role changes at runtime. Qt otherwise keeps the largest
+        # previous layout minimum (notably the admin dashboard on Windows),
+        # which can reject a later resize to the compact guest launcher.
+        main_layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         main_layout.addWidget(self.stack)
 
         # Create overlay widget (hidden by default)
@@ -68,6 +87,7 @@ class MainLauncher(QWidget):
         # START IN GUEST MODE
         self.controller.continue_as_guest()
         self.update_ui_for_user()
+        self._restore_launcher_size()
 
         # Show main panel immediately
         self.stack.setCurrentWidget(self.main_panel)
@@ -176,6 +196,7 @@ class MainLauncher(QWidget):
         self.registration_dialog.raise_()
 
     def handle_registration(self, name: str, login: str, password: str):
+        self._flush_launcher_size()
         success, message = self.controller.register(name, login, password)
         if not success:
             self.registration_dialog.show_error(message)
@@ -185,9 +206,11 @@ class MainLauncher(QWidget):
         self.apply_theme(self.controller.get_theme())
         self.change_language(self.controller.get_language())
         self.update_ui_for_user()
+        self._restore_launcher_size()
 
     def handle_login(self, login: str, password: str):
         """Handle login attempt."""
+        self._flush_launcher_size()
         success, message = self.controller.attempt_login(login, password)
 
         if success:
@@ -200,6 +223,7 @@ class MainLauncher(QWidget):
             self.apply_theme(self.controller.get_theme())
             self.change_language(self.controller.get_language())
             self.update_ui_for_user()
+            self._restore_launcher_size()
         else:
             if self.login_dialog:
                 self.login_dialog.show_error(message)
@@ -213,8 +237,10 @@ class MainLauncher(QWidget):
 
     def handle_guest_mode(self):
         """Handle guest mode selection."""
+        self._flush_launcher_size()
         self.controller.continue_as_guest()
         self.update_ui_for_user()
+        self._restore_launcher_size()
 
         if self.login_dialog:
             self.login_dialog.hide()
@@ -233,12 +259,14 @@ class MainLauncher(QWidget):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        self._flush_launcher_size()
         self.controller.logout()
         if self.login_dialog:
             self.login_dialog.clear_password()
         self.apply_theme(self.controller.get_theme())
         self.change_language(self.controller.get_language())
         self.update_ui_for_user()
+        self._restore_launcher_size()
         self.stack.setCurrentWidget(self.main_panel)
 
         self.close_all_overlays()
@@ -295,9 +323,8 @@ class MainLauncher(QWidget):
         """Initialize main panel with translatable elements."""
         self.main_panel = QWidget()
         layout = QVBoxLayout(self.main_panel)
-        layout.setContentsMargins(60, 60, 60, 60)
-        layout.setSpacing(20)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setContentsMargins(60, 40, 60, 40)
+        layout.setSpacing(14)
 
         # Top bar
         top_bar = QHBoxLayout()
@@ -323,7 +350,7 @@ class MainLauncher(QWidget):
         top_bar.addWidget(self.logout_btn)
 
         layout.addLayout(top_bar)
-        layout.addSpacing(40)
+        layout.addSpacing(10)
 
         # Labels
         self.title_label = QLabel()
@@ -336,7 +363,7 @@ class MainLauncher(QWidget):
         self.subtitle_label.setObjectName("subtitle_label")
         layout.addWidget(self.subtitle_label)
 
-        layout.addSpacing(20)
+        layout.addSpacing(8)
 
         # Study controls are grouped so the two modes use the available width
         # without making the launch screen feel like one long button column.
@@ -430,7 +457,7 @@ class MainLauncher(QWidget):
         management_layout.addWidget(self.role_action_btn, 1, 0, 1, 2)
         layout.addWidget(self.management_row)
 
-        layout.addSpacing(20)
+        layout.addSpacing(8)
 
         self.quit_btn = QPushButton()
         self.quit_btn.clicked.connect(self.close)
@@ -557,6 +584,7 @@ class MainLauncher(QWidget):
             self.account_settings_dialog = AccountSettingsDialog(self.controller, self)
             self.account_settings_dialog.profile_saved.connect(self.update_ui_for_user)
             self.account_settings_dialog.clear_all_progress_requested.connect(self.clear_all_learning_progress)
+        self._prepare_managed_window(self.account_settings_dialog, "account_settings")
         self.account_settings_dialog.refresh_account()
         self.account_settings_dialog.move(
             self.x() + (self.width() - self.account_settings_dialog.width()) // 2,
@@ -620,6 +648,13 @@ class MainLauncher(QWidget):
         """Handle window resize to reposition overlays."""
         super().resizeEvent(event)
 
+        # Only native/window-system resize events represent a user's drag.
+        # Initial show/layout and our role restoration are programmatic and
+        # must not turn a default size into a saved customization.
+        if event.spontaneous() and not self._applying_launcher_size and self.isVisible():
+            self._launcher_size_dirty = True
+            self._launcher_size_timer.start()
+
         # Update overlay geometry
         self.update_overlay_geometry()
 
@@ -632,6 +667,54 @@ class MainLauncher(QWidget):
                 panel_width,
                 self.height()
             )
+
+    def _restore_launcher_size(self):
+        """Restore geometry after Qt has recalculated the role-specific layout."""
+        width, height = self.controller.get_launcher_size()
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen:
+            available = screen.availableGeometry()
+            # Keep a small breathing margin inside the usable desktop. The
+            # available geometry already excludes the Windows taskbar.
+            width = min(width, max(640, available.width() - 24))
+            height = min(height, max(620, available.height() - 24))
+        self._launcher_size_timer.stop()
+        self._launcher_size_dirty = False
+        self._launcher_restore_generation += 1
+        generation = self._launcher_restore_generation
+
+        # Visibility changes post a layout request. Resizing immediately after
+        # hiding the admin/teacher controls can therefore be constrained by
+        # the previous role's stale minimum size. Apply on the next event-loop
+        # turn, once the compact guest/student layout has been recalculated.
+        QTimer.singleShot(
+            0,
+            lambda: self._apply_launcher_size(width, height, generation),
+        )
+
+    def _apply_launcher_size(self, width: int, height: int, generation: int):
+        if generation != self._launcher_restore_generation:
+            return
+        self._applying_launcher_size = True
+        try:
+            self.resize(width, height)
+        finally:
+            self._applying_launcher_size = False
+
+    def _save_launcher_size(self):
+        if not self._launcher_size_dirty or self._applying_launcher_size:
+            return
+        self.controller.set_launcher_size(self.width(), self.height())
+        self._launcher_size_dirty = False
+
+    def _flush_launcher_size(self):
+        """Save a pending manual resize before the active identity changes."""
+        self._launcher_size_timer.stop()
+        self._save_launcher_size()
+
+    def closeEvent(self, event):
+        self._flush_launcher_size()
+        super().closeEvent(event)
 
     # =========================================================
     # THEME & LANGUAGE
@@ -716,12 +799,17 @@ class MainLauncher(QWidget):
     def _launch_sub_window(self, window_class, *args):
         """Launch sub-window."""
         self.close_all_overlays()
+        self._flush_launcher_size()
 
         if self.active_window:
             self.active_window.close()
 
         try:
             self.active_window = window_class(*args)
+            self._prepare_managed_window(
+                self.active_window,
+                self.MANAGED_WINDOW_KEYS.get(window_class.__name__, window_class.__name__.casefold()),
+            )
             self.active_window.finished.connect(self.on_child_window_closed)
             self.active_window.show()
             self.hide()
@@ -759,6 +847,9 @@ class MainLauncher(QWidget):
         # A fresh dialog deliberately resets filters, expanded groups, scroll
         # position, and temporary render state every time it is opened.
         self.profile_statistics_dialog = ProfileStatisticsDialog(stats_controller, self)
+        self._prepare_managed_window(
+            self.profile_statistics_dialog, "profile_statistics"
+        )
         self.profile_statistics_dialog.move(
             self.x() + (self.width() - self.profile_statistics_dialog.width()) // 2,
             self.y() + (self.height() - self.profile_statistics_dialog.height()) // 2,
@@ -790,7 +881,10 @@ class MainLauncher(QWidget):
         if role != "admin":
             return
         from src.ui.moderation_dialog import ModerationDialog
-        ModerationDialog(self.controller.get_current_user_id(), role, self).exec()
+        dialog = ModerationDialog(self.controller.get_current_user_id(), role, self)
+        self._prepare_managed_window(dialog, "moderation_admin")
+        dialog.exec()
+        self._save_managed_window_size(dialog)
 
     def open_role_management(self):
         """Route the one management action shown for the current role."""
@@ -805,9 +899,12 @@ class MainLauncher(QWidget):
         if role != "teacher":
             return
         from src.ui.moderation_dialog import ModerationDialog
-        ModerationDialog(
+        dialog = ModerationDialog(
             self.controller.get_current_user_id(), role, self, initial_tab="classes"
-        ).exec()
+        )
+        self._prepare_managed_window(dialog, "my_classes")
+        dialog.exec()
+        self._save_managed_window_size(dialog)
 
     def open_flashcard_editor(self):
         from src.ui.editor.flashcard_editor import FlashcardEditor
@@ -820,7 +917,70 @@ class MainLauncher(QWidget):
 
     def on_child_window_closed(self):
         """Handle child window closing."""
+        window = self.active_window
+        if window:
+            self._save_managed_window_size(window)
+            window.removeEventFilter(self)
         self.show()
-        if self.active_window:
-            self.active_window.deleteLater()
+        self._restore_launcher_size()
+        if window:
+            window.deleteLater()
             self.active_window = None
+
+    def _prepare_managed_window(self, window, key: str):
+        """Restore one independently persisted, per-identity window size."""
+        if window is None:
+            return
+        width, height = self.controller.get_window_size(key)
+        screen = window.screen() or self.screen() or QApplication.primaryScreen()
+        if screen:
+            available = screen.availableGeometry()
+            width = min(width, max(360, available.width() - 24))
+            height = min(height, max(320, available.height() - 24))
+        window.setProperty("managed_window_key", key)
+        window.setProperty("managed_window_size_dirty", False)
+        window.setProperty("applying_managed_window_size", True)
+        window.installEventFilter(self)
+        window.resize(width, height)
+        window.setProperty("applying_managed_window_size", False)
+
+        # Some complex layouts publish their minimum size during show().
+        # Reapply on the next event-loop turn after that calculation settles.
+        QTimer.singleShot(
+            0, lambda target=window, w=width, h=height: self._apply_managed_window_size(
+                target, w, h
+            )
+        )
+
+    @staticmethod
+    def _apply_managed_window_size(window, width: int, height: int):
+        if window is None:
+            return
+        window.setProperty("applying_managed_window_size", True)
+        try:
+            window.resize(width, height)
+        finally:
+            window.setProperty("applying_managed_window_size", False)
+            window.setProperty("managed_window_size_dirty", False)
+
+    def _save_managed_window_size(self, window):
+        if window is None or not window.property("managed_window_size_dirty"):
+            return
+        key = window.property("managed_window_key")
+        if key:
+            self.controller.set_window_size(str(key), window.width(), window.height())
+        window.setProperty("managed_window_size_dirty", False)
+
+    def eventFilter(self, watched, event):
+        """Track only native user resizes for independently managed windows."""
+        if watched.property("managed_window_key"):
+            if (
+                event.type() == QEvent.Type.Resize
+                and event.spontaneous()
+                and watched.isVisible()
+                and not watched.property("applying_managed_window_size")
+            ):
+                watched.setProperty("managed_window_size_dirty", True)
+            elif event.type() in {QEvent.Type.Hide, QEvent.Type.Close}:
+                self._save_managed_window_size(watched)
+        return super().eventFilter(watched, event)

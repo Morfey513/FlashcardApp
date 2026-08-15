@@ -87,17 +87,88 @@ class InvitationRepository:
             roster = []
             for user_id, enrollment in metadata.get("enrollments", {}).items():
                 summary = self._progress_summary(item, user_id)
+                assessment = self._assessment_summary(item, user_id)
                 roster.append({
                     "user_id": str(user_id),
                     "enrolled_at": enrollment.get("enrolled_at", "") if isinstance(enrollment, dict) else "",
                     **summary,
+                    **assessment,
                 })
+            graded = [row["best_grade"] for row in roster if row.get("best_grade") is not None]
             classes.append({
                 **item,
                 "invite_code": metadata.get("invite", {}).get("code", ""),
                 "roster": roster,
+                "test_settings": (
+                    self.moderation.quizzes.get_test_settings(item["file"])
+                    if item["kind"] == "quiz" else {}
+                ),
+                "class_average": round(sum(graded) / len(graded), 1) if graded else None,
             })
         return classes
+
+    def get_student_attempts(self, relative_path, owner_id, student_id):
+        item = self._find_item(relative_path, "quiz")
+        if not item or str(item.get("owner_id")) != str(owner_id):
+            return []
+        return self.moderation.quizzes.get_test_attempts(relative_path, student_id)
+
+    def resolve_attempt(self, relative_path, owner_id, attempt_id, action):
+        item = self._find_item(relative_path, "quiz")
+        if not item or str(item.get("owner_id")) != str(owner_id):
+            return False, "Only the quiz owner can resolve interrupted attempts."
+        result = self.moderation.quizzes.resolve_test_attempt(
+            relative_path, attempt_id, action, owner_id
+        )
+        return (True, "Attempt resolved.") if result else (False, "Attempt could not be resolved.")
+
+    def update_answer_review_policy(self, relative_path, owner_id, policy):
+        if policy not in {"immediate", "after_due_date", "never"}:
+            return False
+        item = self._find_item(relative_path, "quiz")
+        if not item or str(item.get("owner_id")) != str(owner_id):
+            return False
+        settings = self.moderation.quizzes.get_test_settings(relative_path)
+        settings["answer_review_policy"] = policy
+        questions = self.moderation.quizzes.load_quiz_questions(relative_path)
+        self.moderation.quizzes.save_quiz_content(relative_path, questions, settings)
+        return True
+
+    def get_quiz_analytics(self, relative_path, owner_id):
+        item = self._find_item(relative_path, "quiz")
+        if not item or str(item.get("owner_id")) != str(owner_id):
+            return []
+        questions = self.moderation.quizzes.load_quiz_questions(relative_path)
+        attempts = [
+            attempt for attempt in self.moderation.quizzes.get_test_attempts(relative_path)
+            if attempt.get("status") in {"submitted", "timed_out", "marked_zero"}
+        ]
+        rows = []
+        for question in questions:
+            answers = [
+                answer for attempt in attempts for answer in attempt.get("answers", [])
+                if answer.get("question_id") == question.get("id")
+                and isinstance(answer.get("is_correct"), bool)
+            ]
+            correct = sum(1 for answer in answers if answer.get("is_correct") is True)
+            rate = round((correct / len(answers)) * 100, 1) if answers else None
+            timings = [
+                answer.get("response_seconds") for answer in answers
+                if isinstance(answer.get("response_seconds"), (int, float))
+            ]
+            rows.append({
+                "question_id": question.get("id"),
+                "question": question.get("question", "Untitled question"),
+                "correct": correct,
+                "responses": len(answers),
+                "correct_rate": rate,
+                "average_seconds": round(sum(timings) / len(timings), 1) if timings else None,
+                "difficulty": (
+                    "Not rated" if rate is None else "Easy" if rate >= 75
+                    else "Medium" if rate >= 50 else "Hard"
+                ),
+            })
+        return rows
 
     def remove_enrollment(self, relative_path, kind, owner_id, student_id):
         """Remove one learner from an owner's active Class-Only item."""
@@ -137,6 +208,39 @@ class InvitationRepository:
         if item["kind"] == "flashcard":
             return repo.get_deck_progress_summary(item["file"], user_id)
         return repo.get_quiz_progress_summary(item["file"], user_id)
+
+    def _assessment_summary(self, item, user_id):
+        if item["kind"] != "quiz":
+            return {}
+        attempts = self.moderation.quizzes.get_test_attempts(item["file"], user_id)
+        completed = [
+            attempt for attempt in attempts
+            if attempt.get("status") in {"submitted", "timed_out", "marked_zero"}
+        ]
+        charged = [
+            attempt for attempt in completed
+            if attempt.get("counts_toward_limit", True)
+        ]
+        grades = [float(attempt.get("percentage", 0) or 0) for attempt in charged]
+        unresolved = next((
+            attempt for attempt in attempts
+            if attempt.get("status") in {"abandoned", "in_progress"}
+        ), None)
+        latest_completed = completed[0] if completed else None
+        if unresolved:
+            status = "Abandoned"
+        elif latest_completed:
+            status = "Finished"
+        else:
+            status = "Not Started"
+        return {
+            "best_grade": max(grades) if grades else None,
+            "average_grade": round(sum(grades) / len(grades), 1) if grades else None,
+            "attempts_used": len(charged),
+            "assessment_status": status,
+            "unresolved_attempt": unresolved,
+            "latest_attempt": latest_completed,
+        }
 
     def _find_item(self, relative_path, kind):
         return next(

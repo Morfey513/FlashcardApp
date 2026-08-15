@@ -1283,10 +1283,10 @@
     "moderation": {
         "owner_id": "legacy",
         "status": "published",
-        "visibility": "class_only",
+        "visibility": "public",
         "allowed_user_ids": [],
         "reviewed_by": "1",
-        "reviewed_at": "2026-08-12T00:22:59.880577+00:00",
+        "reviewed_at": "2026-08-14T12:58:55.479901+00:00",
         "review_note": ""
     }
 }

@@ -111,10 +111,12 @@ class UserRepository:
             data = self._read_users()
             for user in data.get("users", []):
                 if str(user.get("id")) == str(user_id):
-                    user["preferences"] = {
-                        "theme": preferences.get("theme", "dark"),
-                        "language": preferences.get("language", "en"),
-                    }
+                    # Keep optional UI preferences (for example launcher_size)
+                    # instead of silently discarding them when theme/language
+                    # changes are saved later.
+                    user["preferences"] = dict(preferences)
+                    user["preferences"].setdefault("theme", "dark")
+                    user["preferences"].setdefault("language", "en")
                     self._write_users(data)
                     return True
         except (OSError, json.JSONDecodeError) as exc:
@@ -178,6 +180,16 @@ class UserRepository:
         except (OSError, json.JSONDecodeError) as exc:
             logger.error("Could not update account status for '%s': %s", user_id, exc)
         return False
+
+    def set_account_status(
+        self, actor_role: str, user_id: str, status: str, reason: str = ""
+    ) -> bool:
+        """Authorized entry point for global account suspension changes."""
+        from src.logic.access_control import can_ban_accounts
+
+        if not can_ban_accounts(actor_role):
+            return False
+        return self.update_status(user_id, status, reason)
 
     def get_ban_message(self, login: str) -> Optional[str]:
         """Return the current suspension reason for a local account, if any."""

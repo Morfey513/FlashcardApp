@@ -6,8 +6,14 @@ import uuid
 
 from src.storage.quiz_repository import QuizRepository
 from src.utils.paths import resolve_stored_path, to_stored_path
-from src.logic.access_control import is_visibility, visibility_submission_status
+from src.logic.access_control import (
+    can_create_content,
+    can_edit_content,
+    is_visibility,
+    visibility_submission_status,
+)
 from src.storage.invitation_repository import InvitationRepository
+from src.logic.test_settings import normalize_test_settings
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +60,11 @@ class QuizEditorController:
             self.current_quiz_info["file"], "quiz"
         ).get("code", "")
 
+    def get_current_test_settings(self):
+        if not self.current_quiz_info:
+            return normalize_test_settings()
+        return self.repo.get_test_settings(self.current_quiz_info["file"])
+
     def generate_or_rotate_invite_code(self):
         if not self.current_quiz_info:
             return False, "Open a quiz before generating an invitation code."
@@ -93,7 +104,7 @@ class QuizEditorController:
         logger.error(f"Quiz not found: {name}")
         return False
 
-    def save_quiz(self, questions, valid_ids, visibility="private"):
+    def save_quiz(self, questions, valid_ids, visibility="private", test_settings=None):
         """Save private work or submit public/class-only work for review."""
         try:
             if not self.current_quiz_info:
@@ -105,13 +116,17 @@ class QuizEditorController:
                 if 'id' not in q or not q['id']:
                     q['id'] = str(uuid.uuid4())
 
-            self.repo.save_quiz_content(self.current_quiz_info["file"], questions)
+            self.repo.save_quiz_content(
+                self.current_quiz_info["file"], questions,
+                normalize_test_settings(test_settings),
+            )
             self.repo.prune_progress(self.current_quiz_info["file"], set(valid_ids))
             from src.storage.moderation_repository import ModerationRepository
             status = visibility_submission_status(visibility)
             ModerationRepository(quizzes=self.repo).set_content_status(
                 self.current_quiz_info["file"], "quiz", status, self.owner_id,
                 visibility=visibility,
+                actor_role=self.role,
             )
             self.has_unsaved_changes = False
             return True
@@ -140,12 +155,32 @@ class QuizEditorController:
 
 # Standardizing repo wrappers
     def create_new_quiz(self, name):
+        if not can_create_content(self.role):
+            return False
         return self.repo.create_quiz(name, owner_id=self.owner_id)
 
     def copy_quiz(self, original_name, new_name):
+        original = next(
+            (quiz for quiz in self._editable_quizzes() if quiz["name"] == original_name),
+            None,
+        )
+        if not original or not can_edit_content(
+            self.role,
+            str(self.get_current_owner(original)) == self.owner_id,
+        ):
+            return False
         return self.repo.copy_quiz(original_name, new_name, self.owner_id)
 
+    def get_current_owner(self, quiz):
+        item = next(
+            (entry for entry in self._moderation_items() if entry["file"] == quiz["file"]),
+            {},
+        )
+        return str(item.get("owner_id", ""))
+
     def _editable_quizzes(self):
+        if self.role not in {"teacher", "admin"}:
+            return []
         items = self._moderation_items()
         allowed = {
             item["file"] for item in items
@@ -159,4 +194,10 @@ class QuizEditorController:
         return ModerationRepository(quizzes=self.repo).get_all_content()
 
     def delete_quiz(self, name):
+        quiz = next((item for item in self._editable_quizzes() if item["name"] == name), None)
+        if not quiz or not can_edit_content(
+            self.role,
+            self.get_current_owner(quiz) == self.owner_id,
+        ):
+            return False
         return self.repo.delete_quiz(name)

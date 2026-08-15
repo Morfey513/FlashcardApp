@@ -104,7 +104,7 @@ class LoginDialog(QDialog):
         self.signup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.signup_btn.setAutoDefault(False)
         self.signup_btn.setDefault(False)
-        self.signup_btn.clicked.connect(self.signup_requested)
+        self.signup_btn.clicked.connect(lambda _checked=False: self.signup_requested.emit())
 
         links_layout.addWidget(self.guest_btn)
         links_layout.addStretch()

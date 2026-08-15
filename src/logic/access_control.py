@@ -56,3 +56,26 @@ def visibility_submission_status(visibility: str) -> str:
 
 def default_visibility_for_status(status: str) -> str:
     return "private" if status == "draft" else "public"
+
+
+def can_create_content(role: str) -> bool:
+    """Return whether a role may create quizzes or flashcard decks."""
+    return role in {"teacher", "admin"}
+
+
+def can_edit_content(role: str, owns_content: bool) -> bool:
+    """Admins may edit all content; teachers are limited to their own."""
+    return role == "admin" or (role == "teacher" and owns_content)
+
+
+def can_manage_class(role: str, owns_content: bool) -> bool:
+    """Class rosters belong to the teacher who owns the content."""
+    return role == "teacher" and owns_content
+
+
+def can_moderate_content(role: str) -> bool:
+    return role == "admin"
+
+
+def can_ban_accounts(role: str) -> bool:
+    return role == "admin"

@@ -4,17 +4,48 @@ import logging
 
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
-    QListWidget, QListWidgetItem, QLineEdit, QScrollArea, QStackedLayout, QFrame,
-    QMessageBox, QComboBox, QTextEdit, QInputDialog, QFileDialog, QToolButton, QApplication, QToolTip
+    QListWidget, QListWidgetItem, QLineEdit, QStackedLayout, QFrame,
+    QMessageBox, QComboBox, QTextEdit, QInputDialog, QFileDialog, QToolButton,
+    QApplication, QToolTip, QSpinBox, QDateTimeEdit, QCheckBox
 )
 from PyQt6.QtGui import QPixmap, QCursor
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QDateTime
 
 from src.controllers.quiz_editor_controller import QuizEditorController
 from src.logic.access_control import VISIBILITIES, VISIBILITY_LABELS, default_visibility_for_status
 from src.logic.translator import get_translator
+from src.ui.auto_scroll import AutoScrollArea
 
 logger = logging.getLogger(__name__)
+
+
+class SignedSpinBox(QSpinBox):
+    """Spin box with explicit, themeable signs over its arrow buttons."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._up_sign = QLabel("⌃", self)
+        self._down_sign = QLabel("⌄", self)
+        self._up_sign.setObjectName("spinbox_arrow_sign")
+        self._down_sign.setObjectName("spinbox_arrow_sign")
+        for sign in (self._up_sign, self._down_sign):
+            sign.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            sign.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            sign.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        button_width = 30
+        upper_height = self.height() // 2
+        self._up_sign.setGeometry(
+            self.width() - button_width, 0, button_width, upper_height
+        )
+        self._down_sign.setGeometry(
+            self.width() - button_width,
+            upper_height,
+            button_width,
+            self.height() - upper_height,
+        )
 
 
 class QuizEditor(QWidget):
@@ -30,6 +61,9 @@ class QuizEditor(QWidget):
         self.edit_question_text = None
 
         self.resize(900, 700)
+        # The editor may become shorter (the settings column scrolls), but
+        # keep enough horizontal room for Questions + Settings + navigation.
+        self.setMinimumSize(860, 560)
 
         self.current_editing_question_index = None
         self.current_editing_questions = []
@@ -133,7 +167,7 @@ class QuizEditor(QWidget):
         self.editor_menu_panel = QFrame()
         layout = QVBoxLayout(self.editor_menu_panel)
         layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(20)
+        layout.setSpacing(14)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
 
         self.editor_menu_title = QLabel()
@@ -157,19 +191,20 @@ class QuizEditor(QWidget):
 
         self.editor_quiz_list = QListWidget()
         self.editor_quiz_list.setObjectName("editor_quiz_list")
-        self.editor_quiz_list.setMinimumHeight(300)
+        # This is the flexible part of the menu.  A large fixed minimum made
+        # the list consume the footer's space when a saved window was short.
+        self.editor_quiz_list.setMinimumHeight(160)
         self.editor_quiz_list.itemDoubleClicked.connect(self.edit_selected_quiz)
         self.editor_quiz_list.currentRowChanged.connect(
             lambda _row: self._sync_inline_selection(self.editor_quiz_list)
         )
-        layout.addWidget(self.editor_quiz_list)
+        layout.addWidget(self.editor_quiz_list, stretch=1)
 
         self.back_to_main_btn = QPushButton()
         self.back_to_main_btn.setMinimumWidth(200)
         self.back_to_main_btn.clicked.connect(self.return_to_main)
         layout.addWidget(self.back_to_main_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        layout.addStretch()
         self.stack.addWidget(self.editor_menu_panel)
 
     def init_quiz_editor_panel(self):
@@ -202,6 +237,16 @@ class QuizEditor(QWidget):
         self.moderation_banner.hide()
         layout.addWidget(self.moderation_banner)
 
+        content_row = QHBoxLayout()
+        content_row.setSpacing(18)
+
+        questions_frame = QFrame()
+        questions_layout = QVBoxLayout(questions_frame)
+        questions_layout.setContentsMargins(0, 0, 0, 0)
+        questions_title = QLabel("QUESTIONS LIST")
+        questions_title.setObjectName("section_label")
+        questions_layout.addWidget(questions_title)
+
         self.editor_question_list = QListWidget()
         self.editor_question_list.setObjectName("editor_question_list")
         self.editor_question_list.setMinimumHeight(350)
@@ -209,7 +254,111 @@ class QuizEditor(QWidget):
         self.editor_question_list.currentRowChanged.connect(
             lambda _row: self._sync_inline_selection(self.editor_question_list)
         )
-        layout.addWidget(self.editor_question_list)
+        questions_layout.addWidget(self.editor_question_list)
+        content_row.addWidget(questions_frame, 1)
+
+        self.assessment_panel = QFrame()
+        self.assessment_panel.setObjectName("assessment_settings_panel")
+        self.assessment_panel.setMinimumWidth(270)
+        settings_layout = QVBoxLayout(self.assessment_panel)
+        settings_layout.setContentsMargins(16, 14, 16, 14)
+        settings_layout.setSpacing(10)
+
+        settings_title = QLabel("⚙ TEST & ACCESS SETTINGS")
+        settings_title.setObjectName("assessment_settings_title")
+        settings_layout.addWidget(settings_title)
+
+        self.due_date_enabled = QCheckBox("📅 Due Date")
+        self.due_date_enabled.toggled.connect(self._toggle_due_date)
+        settings_layout.addWidget(self.due_date_enabled)
+        self.due_date_input = QDateTimeEdit(QDateTime.currentDateTime().addDays(7))
+        self.due_date_input.setCalendarPopup(True)
+        self.due_date_input.setDisplayFormat("yyyy-MM-dd  HH:mm")
+        self.due_date_input.setEnabled(False)
+        self.due_date_input.dateTimeChanged.connect(self._mark_settings_changed)
+        settings_layout.addWidget(self.due_date_input)
+
+        self.time_limit_input = SignedSpinBox()
+        self.time_limit_input.setRange(0, 1440)
+        self.time_limit_input.setSuffix(" minutes")
+        self.time_limit_input.setSpecialValueText("No limit")
+        settings_layout.addWidget(QLabel("⏱ Time Limit"))
+        settings_layout.addWidget(self.time_limit_input)
+        time_help = QLabel("0 = no time limit")
+        time_help.setObjectName("field_help")
+        settings_layout.addWidget(time_help)
+
+        self.passing_grade_input = SignedSpinBox()
+        self.passing_grade_input.setRange(1, 100)
+        self.passing_grade_input.setSuffix(" %")
+        settings_layout.addWidget(QLabel("🎯 Passing Grade"))
+        settings_layout.addWidget(self.passing_grade_input)
+
+        self.attempt_limit_input = SignedSpinBox()
+        self.attempt_limit_input.setRange(0, 100)
+        self.attempt_limit_input.setSuffix(" attempts")
+        self.attempt_limit_input.setSpecialValueText("Unlimited")
+        settings_layout.addWidget(QLabel("🔄 Attempt Limit"))
+        settings_layout.addWidget(self.attempt_limit_input)
+        attempt_help = QLabel("0 = unlimited attempts")
+        attempt_help.setObjectName("field_help")
+        settings_layout.addWidget(attempt_help)
+
+        settings_layout.addWidget(QLabel("👁 Answer Review"))
+        self.answer_review_input = QComboBox()
+        self.answer_review_input.addItem("Immediately after submission", "immediate")
+        self.answer_review_input.addItem("After the due date", "after_due_date")
+        self.answer_review_input.addItem("Never show correct answers", "never")
+        self.answer_review_input.currentIndexChanged.connect(self._mark_settings_changed)
+        settings_layout.addWidget(self.answer_review_input)
+
+        for input_widget in (
+            self.time_limit_input, self.passing_grade_input, self.attempt_limit_input,
+        ):
+            input_widget.valueChanged.connect(self._mark_settings_changed)
+
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setObjectName("management_divider")
+        settings_layout.addWidget(separator)
+
+        invite_title = QLabel("🔑 INVITATION CODE")
+        invite_title.setObjectName("assessment_settings_title")
+        settings_layout.addWidget(invite_title)
+
+        self.invite_toolbar = QFrame()
+        self.invite_toolbar.setObjectName("invite_code_toolbar")
+        invite_layout = QVBoxLayout(self.invite_toolbar)
+        invite_layout.setContentsMargins(0, 0, 0, 0)
+        self.invite_code_label = QLabel()
+        self.invite_code_label.setWordWrap(True)
+        invite_layout.addWidget(self.invite_code_label)
+        invite_buttons = QHBoxLayout()
+        self.copy_invite_btn = QPushButton("Copy")
+        self.copy_invite_btn.clicked.connect(self.copy_current_invite_code)
+        invite_buttons.addWidget(self.copy_invite_btn)
+        self.rotate_invite_btn = QPushButton()
+        self.rotate_invite_btn.clicked.connect(self.generate_or_rotate_current_invite_code)
+        invite_buttons.addWidget(self.rotate_invite_btn)
+        invite_layout.addLayout(invite_buttons)
+        settings_layout.addWidget(self.invite_toolbar)
+        settings_layout.addStretch()
+        self.assessment_scroll = AutoScrollArea()
+        self.assessment_scroll.setObjectName("assessment_settings_scroll")
+        self.assessment_scroll.setWidgetResizable(True)
+        self.assessment_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.assessment_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.assessment_scroll.setFixedWidth(305)
+        self.assessment_scroll.setWidget(self.assessment_panel)
+        self.assessment_scroll.track_auto_scroll_content(self.assessment_panel)
+        self.assessment_scroll.setToolTip(
+            "Middle-click to auto-scroll; press Escape to stop"
+        )
+        self.assessment_scroll.hide()
+        content_row.addWidget(self.assessment_scroll)
+        layout.addLayout(content_row, 1)
 
         nav_btn_layout = QHBoxLayout()
 
@@ -236,26 +385,12 @@ class QuizEditor(QWidget):
         nav_btn_layout.addWidget(self.save_quiz_btn)
 
         layout.addLayout(nav_btn_layout)
-        self.invite_toolbar = QFrame()
-        self.invite_toolbar.setObjectName("invite_code_toolbar")
-        invite_layout = QHBoxLayout(self.invite_toolbar)
-        self.invite_code_label = QLabel()
-        invite_layout.addWidget(self.invite_code_label)
-        invite_layout.addStretch()
-        self.copy_invite_btn = QPushButton("Copy Code")
-        self.copy_invite_btn.clicked.connect(self.copy_current_invite_code)
-        invite_layout.addWidget(self.copy_invite_btn)
-        self.rotate_invite_btn = QPushButton()
-        self.rotate_invite_btn.clicked.connect(self.generate_or_rotate_current_invite_code)
-        invite_layout.addWidget(self.rotate_invite_btn)
-        self.invite_toolbar.hide()
-        layout.addWidget(self.invite_toolbar)
         self.stack.addWidget(self.quiz_editor_panel)
 
     def init_question_editor_panel(self):
         self.question_editor_panel = QFrame()
 
-        scroll = QScrollArea()
+        scroll = AutoScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -345,6 +480,8 @@ class QuizEditor(QWidget):
         layout.addLayout(btn_layout)
 
         scroll.setWidget(content_widget)
+        scroll.track_auto_scroll_content(content_widget)
+        scroll.setToolTip("Middle-click to auto-scroll; press Escape to stop")
         panel_layout = QVBoxLayout(self.question_editor_panel)
         panel_layout.setContentsMargins(0, 0, 0, 0)
         panel_layout.addWidget(scroll)
@@ -439,13 +576,23 @@ class QuizEditor(QWidget):
 
     def _update_invite_code_toolbar(self):
         class_only = self.visibility_selector.currentData() == "class_only"
-        self.invite_toolbar.setVisible(class_only and not self.current_content_banned)
+        show_settings = class_only and not self.current_content_banned
+        self.assessment_panel.setVisible(show_settings)
+        self.assessment_scroll.setVisible(show_settings)
         if not class_only:
             return
         code = self.controller.get_current_invite_code()
         self.invite_code_label.setText(f"🔑 Active Code: {code}" if code else "🔑 No code generated yet")
         self.copy_invite_btn.setEnabled(bool(code))
         self.rotate_invite_btn.setText("Rotate Code" if code else "Generate Code")
+
+    def _mark_settings_changed(self):
+        if self.controller.current_quiz_info:
+            self.controller.has_unsaved_changes = True
+
+    def _toggle_due_date(self, enabled):
+        self.due_date_input.setEnabled(enabled)
+        self._mark_settings_changed()
 
     def copy_invite_code(self, name):
         code = self.controller.get_invite_code(name)
@@ -472,11 +619,37 @@ class QuizEditor(QWidget):
     def _update_moderation_banner(self):
         metadata = self.controller.get_current_moderation()
         status = metadata.get("status", "draft")
+        self.current_content_banned = status == "banned"
         visibility = metadata.get("visibility", default_visibility_for_status(status))
+        settings = self.controller.get_current_test_settings()
+        due_at = settings.get("due_at")
+        self.due_date_enabled.blockSignals(True)
+        self.due_date_enabled.setChecked(bool(due_at))
+        self.due_date_enabled.blockSignals(False)
+        self.due_date_input.setEnabled(bool(due_at))
+        if due_at:
+            parsed_due = QDateTime.fromString(due_at, Qt.DateFormat.ISODate)
+            if parsed_due.isValid():
+                self.due_date_input.blockSignals(True)
+                self.due_date_input.setDateTime(parsed_due.toLocalTime())
+                self.due_date_input.blockSignals(False)
+        for widget, value in (
+            (self.time_limit_input, settings["time_limit_minutes"]),
+            (self.passing_grade_input, settings["passing_grade_percent"]),
+            (self.attempt_limit_input, settings["attempt_limit"]),
+        ):
+            widget.blockSignals(True)
+            widget.setValue(value)
+            widget.blockSignals(False)
+        review_policy = settings.get("answer_review_policy", "immediate")
+        self.answer_review_input.blockSignals(True)
+        self.answer_review_input.setCurrentIndex(
+            max(0, self.answer_review_input.findData(review_policy))
+        )
+        self.answer_review_input.blockSignals(False)
         self.visibility_selector.setCurrentIndex(max(0, self.visibility_selector.findData(visibility)))
         self._update_invite_code_toolbar()
         reason = metadata.get("review_note", "").strip() or "No moderation reason was provided."
-        self.current_content_banned = status == "banned"
         if status not in {"rejected", "banned"}:
             self.moderation_banner.hide()
         else:
@@ -492,8 +665,14 @@ class QuizEditor(QWidget):
         for widget in (
             self.add_question_btn, self.editor_question_list,
             self.visibility_selector, self.save_quiz_btn,
+            self.time_limit_input, self.passing_grade_input, self.attempt_limit_input,
+            self.due_date_enabled,
+            self.answer_review_input,
         ):
             widget.setEnabled(not self.current_content_banned)
+        self.due_date_input.setEnabled(
+            not self.current_content_banned and self.due_date_enabled.isChecked()
+        )
 
     def copy_selected_quiz(self):
         t = self.translator
@@ -576,7 +755,30 @@ class QuizEditor(QWidget):
         valid_ids = {q.get('id') for q in self.controller.current_questions if q.get('id')}
 
         visibility = self.visibility_selector.currentData()
-        if self.controller.save_quiz(self.controller.current_questions, valid_ids, visibility=visibility):
+        test_settings = {
+            "time_limit_minutes": self.time_limit_input.value(),
+            "passing_grade_percent": self.passing_grade_input.value(),
+            "attempt_limit": self.attempt_limit_input.value(),
+            "due_at": (
+                self.due_date_input.dateTime().toUTC().toString(Qt.DateFormat.ISODate)
+                if self.due_date_enabled.isChecked() else None
+            ),
+            "answer_review_policy": self.answer_review_input.currentData(),
+        }
+        if (
+            test_settings["answer_review_policy"] == "after_due_date"
+            and not test_settings["due_at"]
+        ):
+            QMessageBox.warning(
+                self,
+                "Due date required",
+                "Answer review cannot be scheduled for after the due date until a due date is enabled.",
+            )
+            return False
+        if self.controller.save_quiz(
+            self.controller.current_questions, valid_ids,
+            visibility=visibility, test_settings=test_settings,
+        ):
             message = (
                 "Quiz saved as a private draft."
                 if visibility == "private"

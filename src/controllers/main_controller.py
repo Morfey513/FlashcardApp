@@ -6,6 +6,7 @@ from src.logic.translator import get_translator
 from src.storage.user_repository import UserRepository
 from src.logic.user_session import UserSession
 from src.logic.app_settings import AppSettings
+from src.config import LAUNCHER_DEFAULT_SIZES, WINDOW_DEFAULT_SIZES
 
 logger = logging.getLogger(__name__)
 
@@ -142,3 +143,61 @@ class MainController:
         load_qt_translations(QApplication.instance(), lang_code)
 
         logger.info(f"Language changed to: {lang_code}")
+
+    def get_launcher_size(self) -> tuple[int, int]:
+        """Return this identity's saved launcher size or its role default."""
+        role = self.get_current_role()
+        if self.session.is_authenticated():
+            value = self.session.current_user.get("preferences", {}).get("launcher_size")
+        else:
+            value = self.settings.get_launcher_size()
+
+        if (
+            isinstance(value, (list, tuple))
+            and len(value) == 2
+            and all(isinstance(item, int) and item > 0 for item in value)
+        ):
+            return int(value[0]), int(value[1])
+        return LAUNCHER_DEFAULT_SIZES.get(role, LAUNCHER_DEFAULT_SIZES["guest"])
+
+    def set_launcher_size(self, width: int, height: int):
+        """Save launcher geometry independently for the active identity."""
+        width, height = int(width), int(height)
+        if width <= 0 or height <= 0:
+            return
+        if self.session.is_authenticated():
+            preferences = self.session.current_user.setdefault("preferences", {})
+            preferences["launcher_size"] = [width, height]
+            self.user_repo.save_preferences(self.get_current_user_id(), preferences)
+        else:
+            self.settings.set_launcher_size(width, height)
+
+    def get_window_size(self, key: str) -> tuple[int, int]:
+        """Return a per-identity window size or that window's default."""
+        if self.session.is_authenticated():
+            values = self.session.current_user.get("preferences", {}).get(
+                "window_sizes", {}
+            )
+            value = values.get(key) if isinstance(values, dict) else None
+        else:
+            value = self.settings.get_window_size(key)
+        if (
+            isinstance(value, (list, tuple))
+            and len(value) == 2
+            and all(isinstance(item, int) and item > 0 for item in value)
+        ):
+            return int(value[0]), int(value[1])
+        return WINDOW_DEFAULT_SIZES.get(key, (800, 650))
+
+    def set_window_size(self, key: str, width: int, height: int):
+        """Save one window's dimensions without affecting other windows."""
+        width, height = int(width), int(height)
+        if not key or width <= 0 or height <= 0:
+            return
+        if self.session.is_authenticated():
+            preferences = self.session.current_user.setdefault("preferences", {})
+            values = preferences.setdefault("window_sizes", {})
+            values[str(key)] = [width, height]
+            self.user_repo.save_preferences(self.get_current_user_id(), preferences)
+        else:
+            self.settings.set_window_size(key, width, height)

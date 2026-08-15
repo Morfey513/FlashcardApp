@@ -2,10 +2,12 @@ import json
 import logging
 import shutil
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.config import QUIZ_DIR, QUIZ_INDEX
 from src.logic.question_types import normalize_matching_pairs
+from src.logic.test_settings import normalize_test_settings
 from src.utils.paths import resolve_stored_path, to_stored_path
 
 logger = logging.getLogger(__name__)
@@ -13,6 +15,7 @@ logger = logging.getLogger(__name__)
 QUIZ_FILENAME = "quiz.json"
 MEDIA_FOLDER = "media"
 PROGRESS_FOLDER = "progress"
+ATTEMPTS_FOLDER = "attempts"
 
 
 class QuizRepository:
@@ -70,7 +73,7 @@ class QuizRepository:
             logger.error("Failed to load quiz %s: %s", relative_path, exc)
             return []
 
-    def save_quiz_content(self, relative_path: str, questions: list):
+    def save_quiz_content(self, relative_path: str, questions: list, test_settings=None):
         file = self._resolve_path(relative_path)
         metadata = self._read_json(file) if file.exists() else {}
         self._normalize_questions(questions)
@@ -80,9 +83,12 @@ class QuizRepository:
             metadata.get("name", file.parent.name),
             questions,
             metadata.get("moderation"),
+            normalize_test_settings(
+                metadata.get("test_settings") if test_settings is None else test_settings
+            ),
         )
 
-    def create_quiz(self, name, questions=None, owner_id=None):
+    def create_quiz(self, name, questions=None, owner_id=None, test_settings=None):
         if any(quiz["name"] == name for quiz in self.get_all_quizzes()):
             return False
         quiz_id = str(uuid.uuid4())
@@ -99,7 +105,10 @@ class QuizRepository:
                 "allowed_user_ids": [], "reviewed_by": None, "reviewed_at": None,
                 "review_note": "",
             }
-        self._write_quiz(file, quiz_id, name, questions, moderation)
+        self._write_quiz(
+            file, quiz_id, name, questions, moderation,
+            normalize_test_settings(test_settings),
+        )
         quizzes = self.get_all_quizzes()
         quizzes.append({"id": quiz_id, "name": name, "file": to_stored_path(file)})
         self._save_index(quizzes)
@@ -114,7 +123,19 @@ class QuizRepository:
             item = question.copy()
             item["id"] = str(uuid.uuid4())
             copied.append(item)
-        return self.create_quiz(new_name, copied, owner_id)
+        return self.create_quiz(
+            new_name, copied, owner_id,
+            test_settings=self.get_test_settings(original["file"]),
+        )
+
+    def get_test_settings(self, quiz_relative_path):
+        file = self._resolve_path(quiz_relative_path)
+        if not file or not file.exists():
+            return normalize_test_settings()
+        try:
+            return normalize_test_settings(self._read_json(file).get("test_settings"))
+        except (OSError, json.JSONDecodeError, TypeError):
+            return normalize_test_settings()
 
     def delete_quiz(self, name: str):
         quiz = self._find_by_name(name)
@@ -201,6 +222,97 @@ class QuizRepository:
         logger.info("Cleared progress for user '%s' from %d quizzes", user_id, removed)
         return removed
 
+    def save_test_attempt(self, quiz_relative_path, attempt):
+        """Persist a new test-attempt record inside its quiz folder."""
+        quiz_file = self._resolve_path(quiz_relative_path)
+        folder = quiz_file.parent / ATTEMPTS_FOLDER
+        folder.mkdir(parents=True, exist_ok=True)
+        payload = dict(attempt)
+        payload.setdefault("id", str(uuid.uuid4()))
+        payload.setdefault("created_at", datetime.now(timezone.utc).isoformat())
+        if payload.get("status") not in {"in_progress", "abandoned"}:
+            payload.setdefault("submitted_at", datetime.now(timezone.utc).isoformat())
+        (folder / f"{payload['id']}.json").write_text(
+            json.dumps(payload, indent=4), encoding="utf-8"
+        )
+        return payload
+
+    def update_test_attempt(self, quiz_relative_path, attempt_id, changes):
+        """Update one attempt as it moves through its explicit lifecycle."""
+        quiz_file = self._resolve_path(quiz_relative_path)
+        file = quiz_file.parent / ATTEMPTS_FOLDER / f"{attempt_id}.json"
+        if not file.exists():
+            return None
+        try:
+            payload = self._read_json(file)
+            payload.update(dict(changes))
+            file.write_text(json.dumps(payload, indent=4), encoding="utf-8")
+            return payload
+        except (OSError, json.JSONDecodeError, TypeError) as exc:
+            logger.error("Failed to update test attempt %s: %s", attempt_id, exc)
+            return None
+
+    def get_test_attempt(self, quiz_relative_path, attempt_id):
+        quiz_file = self._resolve_path(quiz_relative_path)
+        file = quiz_file.parent / ATTEMPTS_FOLDER / f"{attempt_id}.json"
+        if not file.exists():
+            return None
+        try:
+            return self._read_json(file)
+        except (OSError, json.JSONDecodeError, TypeError):
+            return None
+
+    def resolve_test_attempt(self, quiz_relative_path, attempt_id, action, actor_id):
+        """Resolve an interrupted attempt by grading, refunding, or assigning zero."""
+        attempt = self.get_test_attempt(quiz_relative_path, attempt_id)
+        if not attempt or attempt.get("status") not in {"in_progress", "abandoned"}:
+            return None
+        now = datetime.now(timezone.utc).isoformat()
+        resolution = {
+            "resolved_at": now,
+            "resolved_by": str(actor_id),
+            "resolution": action,
+        }
+        if action == "refund":
+            resolution.update({"status": "refunded", "counts_toward_limit": False})
+        elif action in {"submit_current", "mark_zero"}:
+            total = max(0, int(attempt.get("total", 0) or 0))
+            answers = attempt.get("answers", []) if isinstance(attempt.get("answers"), list) else []
+            score = 0 if action == "mark_zero" else sum(
+                1 for answer in answers if answer.get("is_correct") is True
+            )
+            percentage = round((score / total) * 100, 1) if total else 0.0
+            passing = attempt.get("passing_grade_percent")
+            resolution.update({
+                "status": "marked_zero" if action == "mark_zero" else "submitted",
+                "submitted_at": now,
+                "score": score,
+                "percentage": percentage,
+                "passed": percentage >= passing if passing is not None else None,
+                "counts_toward_limit": True,
+            })
+        else:
+            return None
+        return self.update_test_attempt(quiz_relative_path, attempt_id, resolution)
+
+    def get_test_attempts(self, quiz_relative_path, user_id=None):
+        folder = self._resolve_path(quiz_relative_path).parent / ATTEMPTS_FOLDER
+        if not folder.exists():
+            return []
+        attempts = []
+        for file in folder.glob("*.json"):
+            try:
+                attempt = self._read_json(file)
+                if user_id is None or str(attempt.get("user_id")) == str(user_id):
+                    attempts.append(attempt)
+            except (OSError, json.JSONDecodeError, TypeError) as exc:
+                logger.warning("Skipping invalid test attempt %s: %s", file, exc)
+        return sorted(attempts, key=lambda item: item.get("submitted_at", ""), reverse=True)
+
+    def get_latest_test_attempt(self, quiz_relative_path, user_id):
+        attempts = self.get_test_attempts(quiz_relative_path, user_id)
+        return attempts[0] if attempts else None
+
     def prune_progress(self, quiz_relative_path, valid_ids):
         quiz_file = self._resolve_path(quiz_relative_path)
         progress_dir = quiz_file.parent / PROGRESS_FOLDER
@@ -247,12 +359,13 @@ class QuizRepository:
         return json.loads(file.read_text(encoding="utf-8"))
 
     @staticmethod
-    def _write_quiz(file, quiz_id, name, questions, moderation=None):
+    def _write_quiz(file, quiz_id, name, questions, moderation=None, test_settings=None):
         file.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "id": quiz_id,
             "name": name,
             "questions": questions,
+            "test_settings": normalize_test_settings(test_settings),
         }
         if moderation is not None:
             data["moderation"] = moderation

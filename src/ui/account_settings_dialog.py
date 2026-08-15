@@ -14,7 +14,8 @@ class AccountSettingsDialog(QDialog):
         super().__init__(parent)
         self.controller = controller
         self.translator = get_translator()
-        self.setFixedSize(520, 700)
+        self.resize(520, 700)
+        self.setMinimumSize(500, 620)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._init_ui()

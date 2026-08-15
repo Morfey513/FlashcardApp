@@ -19,6 +19,12 @@ application.
   moderation rules.
 - Class-only content shared through revocable invitation codes, with teacher
   roster and access management.
+- Dedicated quiz Test Mode with persistent attempt history, configurable
+  countdown timers, due dates, passing grades, attempt limits, saved pass/fail
+  results, explicit interrupted-attempt handling, and teacher-controlled answer
+  review.
+- Teacher assessment reporting with best/average grades, class averages,
+  per-question analytics, submission inspection, and CSV result exports.
 - Persistent light/dark themes and English/French language preferences.
 - Local JSON repositories with stable content IDs, content-owned media, index
   recovery, and isolated progress files.
@@ -104,23 +110,27 @@ Install the development dependencies and run:
 .\.venv\Scripts\python.exe run_tests.py
 ```
 
-The suite currently collects 51 pytest cases covering core learning logic,
-grading, repositories, progress, sessions, permissions, invitations, and
-selected UI behavior. The suite focuses primarily on core business logic and
-the JSON storage layer, while much of the PyQt UI is tested manually.
+**112 pytest cases provide 43.9% overall branch coverage. Core controllers
+achieve 86.8% branch coverage and utilities 98.5%; the lower overall figure is
+primarily caused by intentionally lightly tested PyQt presentation code.** The
+controller, Quiz/Test Mode controller, and utility regression floors are 80%,
+80%, and 90%, respectively. Tests cover core learning logic, grading, repositories,
+progress, sessions, permissions, invitations, editor controllers, mocked
+audio/TTS behavior, and selected high-value UI behavior such as authentication
+validation, enrollment feedback, role-gated actions, and test-attempt gating.
+The normal command also creates
+an interactive report at `htmlcov/index.html`; visual PyQt and real-device
+output remain manual.
 
 See [docs/testing.md](docs/testing.md) for the complete test inventory and
 testing strategy.
 
 ## Future plans
 
-1. Add automated test coverage reporting and use it to identify important
-   untested logic and integration paths.
-2. Add a separate testing mode with persistent attempt history and best/latest
-   results.
-3. Introduce a Python API and PostgreSQL data layer, initially hosted locally
-   and designed for later cloud deployment.
-4. Add multi-device identity, secure remote sessions, account recovery, and
+1. Migrate persistence in stages: introduce a Python API, run it on a local
+   server, replace JSON persistence with PostgreSQL, and then deploy the same
+   service architecture to a cloud provider.
+2. Add multi-device identity, secure remote sessions, account recovery, and
    synchronized progress.
 
 ## Documentation

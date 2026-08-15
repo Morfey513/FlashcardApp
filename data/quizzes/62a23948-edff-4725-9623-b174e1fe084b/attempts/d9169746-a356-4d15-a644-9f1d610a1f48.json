@@ -1,0 +1,90 @@
+{
+    "quiz_id": "62a23948-edff-4725-9623-b174e1fe084b",
+    "quiz_name": "General Quiz (Copy) (Copy)asd",
+    "user_id": "2",
+    "mode": "test",
+    "started_at": "2026-08-14T13:11:42.968046+00:00",
+    "submitted_at": "2026-08-14T13:12:11.766120+00:00",
+    "duration_seconds": 28,
+    "score": 3,
+    "total": 6,
+    "percentage": 50.0,
+    "answers": [
+        {
+            "question_id": "651cded0-38de-4c20-a075-dcdeb00900f6",
+            "question": "Order the colors of a rainbow starting from the top:",
+            "type": "ordering",
+            "user_answer": [
+                "-- Select --",
+                "-- Select --",
+                "-- Select --",
+                "-- Select --",
+                "-- Select --",
+                "-- Select --",
+                "-- Select --"
+            ],
+            "correct_answer": [
+                "Red",
+                "Orange",
+                "Yellow",
+                "Green",
+                "Blue",
+                "Indigo",
+                "Violet"
+            ]
+        },
+        {
+            "question_id": "d5dc2b34-65c4-4053-ba61-bb4612c55577",
+            "question": "The human skeleton has more than 200 bones.",
+            "type": "true_false",
+            "user_answer": false,
+            "correct_answer": true
+        },
+        {
+            "question_id": "6f84eca1-4631-4f83-85dc-29d466fcede7",
+            "question": "Which planet has the most moons?",
+            "type": "single_choice",
+            "user_answer": "Saturn",
+            "correct_answer": "Saturn"
+        },
+        {
+            "question_id": "b91fad4b-44e4-4f0c-8db7-3e0133f7de57",
+            "question": "Select all fruits:",
+            "type": "multiple_choice",
+            "user_answer": [
+                "Banana",
+                "Apple"
+            ],
+            "correct_answer": [
+                "Apple",
+                "Banana"
+            ]
+        },
+        {
+            "question_id": "266f27c9-e0f2-4248-8088-8343108d7c04",
+            "question": "Match country to capital:",
+            "type": "matching",
+            "user_answer": [
+                {
+                    "prompt": "Spain",
+                    "answer": "Madrid"
+                },
+                {
+                    "prompt": "Norway",
+                    "answer": "Oslo"
+                }
+            ],
+            "correct_answer": [
+                {
+                    "prompt": "Spain",
+                    "answer": "Madrid"
+                },
+                {
+                    "prompt": "Norway",
+                    "answer": "Oslo"
+                }
+            ]
+        }
+    ],
+    "id": "d9169746-a356-4d15-a644-9f1d610a1f48"
+}

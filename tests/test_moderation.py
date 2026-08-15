@@ -16,7 +16,8 @@ def test_moderation_status_is_preserved_when_content_is_saved(tmp_path):
     assert item["status"] == "draft"
     assert item["visibility"] == "private"
     assert moderation.update_status(
-        item, "pending_review", "teacher-1", "Ready to review", visibility="class_only"
+        item, "pending_review", "teacher-1", "Ready to review",
+        visibility="class_only", actor_role="teacher",
     )
 
     flashcards.save_deck_content(item["file"], [{"id": "card-1", "front": "Q", "back": "A"}])
@@ -37,15 +38,31 @@ def test_lifecycle_visibility_and_account_bans(tmp_path):
     assert len(moderation.get_content_for_user("teacher-1", "teacher")) == 1
 
     item = moderation.get_all_content()[0]
-    assert moderation.update_status(item, "published", "admin", visibility="public")
+    assert moderation.update_status(
+        item, "pending_review", "teacher-2", actor_role="teacher"
+    ) is False
+    assert moderation.update_status(
+        item, "published", "teacher-1", actor_role="teacher"
+    ) is False
+    assert moderation.update_status(
+        item, "pending_review", "student-1", actor_role="student"
+    ) is False
+    assert moderation.update_status(
+        item, "published", "admin", visibility="public", actor_role="admin"
+    )
     assert len(moderation.get_content_for_user("student-1", "student")) == 1
-    assert moderation.update_status(item, "banned", "admin")
+    assert moderation.update_status(item, "banned", "admin", actor_role="admin")
     assert moderation.get_content_for_user("teacher-1", "teacher") == []
     assert len(moderation.get_content_for_selector("teacher-1", "teacher")) == 1
     assert moderation.get_content_for_selector("admin", "admin") == []
 
     users = UserRepository(tmp_path / "users.json")
     admin = users.authenticate("admin", "admin123")
-    assert users.update_status(admin["id"], "banned", "Repeated guideline violations")
+    assert users.set_account_status(
+        "teacher", admin["id"], "banned", "Not authorized"
+    ) is False
+    assert users.set_account_status(
+        "admin", admin["id"], "banned", "Repeated guideline violations"
+    )
     assert users.authenticate("admin", "admin123") is None
     assert "Repeated guideline violations" in users.get_ban_message("admin")

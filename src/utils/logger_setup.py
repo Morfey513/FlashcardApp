@@ -8,7 +8,7 @@ from src.config import LOG_FILE, LOG_DIR
 
 def setup_logging():
     # 1. Ensure the directory exists (Safety first)
-    LOG_DIR.mkdir(exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     # 2. Define the format
     log_format = logging.Formatter(
@@ -31,6 +31,8 @@ def setup_logging():
     root_logger = logging.getLogger()
     # If handlers already exist (e.g. from a previous call), remove them to avoid duplicates
     if root_logger.hasHandlers():
+        for handler in root_logger.handlers:
+            handler.close()
         root_logger.handlers.clear()
 
     root_logger.setLevel(logging.DEBUG)

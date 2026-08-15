@@ -1065,12 +1065,120 @@ QFrame#review_item_row:hover {
 
 QPushButton#mode_back_btn { background: transparent; color: #cbd5e1; border: none; padding: 8px 12px; }
 QPushButton#mode_back_btn:hover { background: #334155; border-radius: 6px; }
+QPushButton#mode_header_action {
+    min-width: 0px;
+    min-height: 0px;
+    padding: 8px 14px;
+    background-color: transparent;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    color: #e2e8f0;
+}
+QPushButton#mode_header_action:hover {
+    background-color: #334155;
+    color: #ffffff;
+}
+QPushButton#mode_header_action:disabled {
+    background-color: #273444;
+    border-color: #475569;
+    color: #94a3b8;
+}
 
 QFrame#invite_code_toolbar {
     background-color: #263548;
     border: 1px solid #40536b;
     border-radius: 7px;
     padding: 4px;
+}
+
+QFrame#assessment_settings_panel {
+    background-color: rgba(45, 137, 239, 0.08);
+    border: 1px solid #3b5978;
+    border-radius: 8px;
+}
+QLabel#assessment_settings_title { font-weight: bold; color: #dbeafe; }
+QLabel#field_help { color: #9aa8b8; font-size: 11px; padding: 0px; }
+QFrame#assessment_settings_panel QSpinBox {
+    min-width: 0px;
+    min-height: 34px;
+    padding: 3px 36px 3px 8px;
+}
+QFrame#assessment_settings_panel QSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 30px;
+    min-height: 18px;
+    border-left: 1px solid #40536b;
+    border-bottom: 1px solid #40536b;
+    border-top-right-radius: 6px;
+    background-color: #263342;
+}
+QFrame#assessment_settings_panel QSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 30px;
+    min-height: 18px;
+    border-left: 1px solid #40536b;
+    border-bottom-right-radius: 6px;
+    background-color: #263342;
+}
+QFrame#assessment_settings_panel QSpinBox::up-button:hover,
+QFrame#assessment_settings_panel QSpinBox::down-button:hover {
+    background-color: #34465a;
+}
+QFrame#assessment_settings_panel QLabel#spinbox_arrow_sign {
+    color: #f1f5f9;
+    background: transparent;
+    border: none;
+    padding: 0px;
+    font-size: 13px;
+    font-weight: bold;
+}
+QFrame#assessment_settings_panel QCheckBox::indicator {
+    width: 17px;
+    height: 17px;
+    border: 1px solid #94a3b8;
+    border-radius: 4px;
+    background-color: #253241;
+}
+QFrame#assessment_settings_panel QCheckBox::indicator:hover {
+    border-color: #60a5fa;
+    background-color: #334155;
+}
+QFrame#assessment_settings_panel QCheckBox::indicator:checked {
+    border: 2px solid #93c5fd;
+    background-color: #2d89ef;
+}
+QFrame#assessment_settings_panel QPushButton {
+    min-width: 0px;
+    min-height: 32px;
+    padding: 5px 8px;
+}
+
+QFrame#quiz_list_row {
+    background-color: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+}
+
+QFrame#quiz_list_row:hover {
+    background-color: #333333;
+}
+
+QFrame#quiz_list_row[selected="true"] {
+    background-color: #303840;
+    border-left: 4px solid #2d89ef;
+}
+
+QLabel#quiz_list_name { font-weight: bold; }
+QLabel#quiz_latest_test { color: #93c5fd; }
+QLabel#test_timer_label {
+    color: #fbbf24;
+    font-weight: bold;
+    font-size: 16px;
+    padding: 5px 10px;
+    border: 1px solid #92400e;
+    border-radius: 6px;
 }
 
 QFrame#class_roster_card {
@@ -1084,7 +1192,41 @@ QFrame#class_roster_header:hover { background-color: #334155; }
 QTreeWidget#class_roster_table::item:hover { background-color: transparent; color: #e0e0e0; }
 QTreeWidget#class_roster_table::item:selected { background-color: transparent; color: #e0e0e0; }
 QPushButton#class_code_button { min-width: 0; padding: 4px 8px; }
+QPushButton#class_toolbar_button,
+QPushButton#class_details_button,
+QPushButton#class_resolve_button,
+QPushButton#class_remove_button {
+    min-width: 0px;
+    min-height: 0px;
+    padding: 5px 8px;
+    border: none;
+    border-radius: 7px;
+}
+QPushButton#class_details_button { background-color: #334155; }
+QPushButton#class_details_button:hover { background-color: #475569; }
+QPushButton#class_resolve_button { background-color: #b45309; }
+QPushButton#class_resolve_button:hover { background-color: #d97706; }
+QPushButton#class_remove_button { background-color: #dc2626; color: white; }
+QPushButton#class_remove_button:hover { background-color: #ef4444; }
 QFrame#class_remove_cell { background-color: transparent; border: none; }
+
+QDialog#interrupted_attempt_dialog QRadioButton {
+    spacing: 9px;
+}
+QDialog#interrupted_attempt_dialog QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #94a3b8;
+    border-radius: 9px;
+    background-color: #1a1a1a;
+}
+QDialog#interrupted_attempt_dialog QRadioButton::indicator:hover {
+    border-color: #60a5fa;
+}
+QDialog#interrupted_attempt_dialog QRadioButton::indicator:checked {
+    border-color: #bfdbfe;
+    background-color: #2d89ef;
+}
 
 QPushButton#ghost_danger {
     color: #fca5a5;

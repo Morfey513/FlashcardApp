@@ -29,3 +29,25 @@ def test_guest_and_signup_links_cannot_become_implicit_enter_actions():
     assert dialog.signup_btn.autoDefault() is False
     dialog.close()
     assert app is not None
+
+
+def test_login_requires_both_fields_and_emits_credentials_once():
+    app = QApplication.instance() or QApplication([])
+    dialog = LoginDialog()
+    submitted = []
+    dialog.login_success.connect(lambda login, password: submitted.append((login, password)))
+
+    dialog.email_input.setText("student")
+    dialog.handle_login()
+    assert submitted == []
+    assert dialog.error_label.isHidden() is False
+
+    dialog.password_input.setText("secret")
+    dialog.handle_login()
+    assert submitted == [("student", "secret")]
+    assert dialog.error_label.isHidden() is True
+
+    dialog.clear_password()
+    assert dialog.password_input.text() == ""
+    dialog.close()
+    assert app is not None

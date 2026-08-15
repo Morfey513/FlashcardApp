@@ -1,0 +1,71 @@
+{
+    "quiz_id": "da5430fa-b771-4262-9383-90e4e3abc3f0",
+    "quiz_name": "General Quiz (Copy)",
+    "user_id": "2",
+    "mode": "test",
+    "started_at": "2026-08-14T12:54:03.235980+00:00",
+    "submitted_at": "2026-08-14T12:54:18.083226+00:00",
+    "duration_seconds": 14,
+    "score": 0,
+    "total": 6,
+    "percentage": 0.0,
+    "answers": [
+        {
+            "question_id": "a6d54666",
+            "question": "The human skeleton has more than 200 bones.",
+            "type": "true_false",
+            "user_answer": "True",
+            "correct_answer": true
+        },
+        {
+            "question_id": "bdcab1c9",
+            "question": "Order the colors of a rainbow starting from the top:",
+            "type": "ordering",
+            "user_answer": [
+                "-- Select --",
+                "-- Select --",
+                "Indigo",
+                "-- Select --",
+                "-- Select --",
+                "-- Select --",
+                "-- Select --"
+            ],
+            "correct_answer": [
+                "Red",
+                "Orange",
+                "Yellow",
+                "Green",
+                "Blue",
+                "Indigo",
+                "Violet"
+            ]
+        },
+        {
+            "question_id": "4f7afa52",
+            "question": "Select all fruits:",
+            "type": "multiple_choice",
+            "user_answer": [
+                "Apple"
+            ],
+            "correct_answer": [
+                "Apple",
+                "Banana"
+            ]
+        },
+        {
+            "question_id": "fba875bc",
+            "question": "Which planet has the most moons?",
+            "type": "single_choice",
+            "user_answer": "Jupiter",
+            "correct_answer": "Saturn"
+        },
+        {
+            "question_id": "aba262e2",
+            "question": "What is the capital city of Japan?",
+            "type": "short_answer",
+            "user_answer": "qwe",
+            "correct_answer": "Tokyo"
+        }
+    ],
+    "id": "7e8b9d9e-f903-483a-85c2-2af80e554bb9"
+}
