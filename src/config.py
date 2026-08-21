@@ -22,6 +22,7 @@ QUIZ_INDEX = DATA_DIR / "quizzes.json"
 FLASHCARD_INDEX = DATA_DIR / "flashcard_decks.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 USERS_FILE = DATA_DIR / "users.json"
+CONTENT_EDIT_HISTORY_FILENAME = "edit_history.json"
 
 # Styles
 STYLES_DIR = BASE_DIR / "styles"

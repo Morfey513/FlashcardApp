@@ -1,14 +1,15 @@
 """Read-only aggregation of one learner's saved study progress."""
 
-from src.storage.flashcard_repository import FlashcardRepository
-from src.storage.quiz_repository import QuizRepository
+from src.storage.repository_factory import create_flashcard_repository, create_quiz_repository
 
 
 class ProfileStatisticsController:
-    def __init__(self, user_id, flashcard_repo=None, quiz_repo=None):
+    def __init__(
+        self, user_id, flashcard_repo=None, quiz_repo=None, user_repository=None,
+    ):
         self.user_id = str(user_id)
-        self.flashcard_repo = flashcard_repo or FlashcardRepository()
-        self.quiz_repo = quiz_repo or QuizRepository()
+        self.flashcard_repo = flashcard_repo or create_flashcard_repository(user_repository)
+        self.quiz_repo = quiz_repo or create_quiz_repository(user_repository)
 
     def get_flashcard_stats(self):
         collections = []

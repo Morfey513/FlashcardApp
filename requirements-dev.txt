@@ -2,3 +2,4 @@
 # Test runner used by run_tests.py and the test suite.
 pytest==9.1.1
 pytest-cov==7.0.0
+httpx2>=2,<3

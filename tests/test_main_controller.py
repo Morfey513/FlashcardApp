@@ -53,6 +53,7 @@ def test_main_controller_authentication_and_session_transitions(tmp_path):
     assert controller.get_current_user_name() == "Guest"
     controller.continue_as_guest()
     assert controller.session.is_guest is True
+    assert controller.is_online() is False
 
 
 def test_main_controller_registration_name_and_password_orchestration(tmp_path):

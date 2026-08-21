@@ -8,6 +8,10 @@ from pathlib import Path
 from src.config import QUIZ_DIR, QUIZ_INDEX
 from src.logic.question_types import normalize_matching_pairs
 from src.logic.test_settings import normalize_test_settings
+from src.storage.content_audit_repository import (
+    ContentAuditRepository,
+    summarize_collection_change,
+)
 from src.utils.paths import resolve_stored_path, to_stored_path
 
 logger = logging.getLogger(__name__)
@@ -73,9 +77,17 @@ class QuizRepository:
             logger.error("Failed to load quiz %s: %s", relative_path, exc)
             return []
 
-    def save_quiz_content(self, relative_path: str, questions: list, test_settings=None):
+    def save_quiz_content(
+        self, relative_path: str, questions: list, test_settings=None, *,
+        actor_id=None, actor_role=None,
+    ):
         file = self._resolve_path(relative_path)
         metadata = self._read_json(file) if file.exists() else {}
+        old_questions = metadata.get("questions", [])
+        old_settings = normalize_test_settings(metadata.get("test_settings"))
+        new_settings = normalize_test_settings(
+            metadata.get("test_settings") if test_settings is None else test_settings
+        )
         self._normalize_questions(questions)
         self._write_quiz(
             file,
@@ -83,12 +95,19 @@ class QuizRepository:
             metadata.get("name", file.parent.name),
             questions,
             metadata.get("moderation"),
-            normalize_test_settings(
-                metadata.get("test_settings") if test_settings is None else test_settings
-            ),
+            new_settings,
+        )
+        summary, fields = summarize_collection_change(
+            "quiz", old_questions, questions, settings_changed=old_settings != new_settings
+        )
+        ContentAuditRepository.append(
+            file, changed_by=actor_id, role=actor_role,
+            change_summary=summary, changed_fields=fields,
         )
 
-    def create_quiz(self, name, questions=None, owner_id=None, test_settings=None):
+    def create_quiz(
+        self, name, questions=None, owner_id=None, test_settings=None, *, actor_role=None
+    ):
         if any(quiz["name"] == name for quiz in self.get_all_quizzes()):
             return False
         quiz_id = str(uuid.uuid4())
@@ -112,9 +131,14 @@ class QuizRepository:
         quizzes = self.get_all_quizzes()
         quizzes.append({"id": quiz_id, "name": name, "file": to_stored_path(file)})
         self._save_index(quizzes)
+        ContentAuditRepository.append(
+            file, changed_by=owner_id, role=actor_role,
+            action="created", change_summary=f"Created quiz with {len(questions)} questions.",
+            changed_fields=["name", "questions"],
+        )
         return True
 
-    def copy_quiz(self, original_name, new_name, owner_id=None):
+    def copy_quiz(self, original_name, new_name, owner_id=None, *, actor_role=None):
         original = self._find_by_name(original_name)
         if not original:
             return False
@@ -125,8 +149,11 @@ class QuizRepository:
             copied.append(item)
         return self.create_quiz(
             new_name, copied, owner_id,
-            test_settings=self.get_test_settings(original["file"]),
+            test_settings=self.get_test_settings(original["file"]), actor_role=actor_role,
         )
+
+    def get_edit_history(self, relative_path):
+        return ContentAuditRepository.get_history(self._resolve_path(relative_path))
 
     def get_test_settings(self, quiz_relative_path):
         file = self._resolve_path(quiz_relative_path)

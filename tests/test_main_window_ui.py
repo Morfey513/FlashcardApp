@@ -40,6 +40,12 @@ class MainControllerStub:
     def set_launcher_size(self, _width, _height):
         pass
 
+    def is_online(self):
+        return False
+
+    def get_storage_backend(self):
+        return "json"
+
 
 @pytest.mark.parametrize(
     ("role", "editors", "role_action", "action_kind", "student_actions"),
@@ -70,6 +76,25 @@ def test_launcher_exposes_only_actions_allowed_for_role(
         assert window.role_action_btn.property("role_action") == action_kind
     assert window.login_btn.isHidden() is (role != "guest")
     assert window.logout_btn.isHidden() is (role == "guest")
+
+    window.close()
+    app.processEvents()
+
+
+def test_launcher_connection_indicator_exposes_readiness(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    controller = MainControllerStub()
+    monkeypatch.setattr(main_window_module, "MainController", lambda: controller)
+    window = main_window_module.MainLauncher(Path("missing.qss"), Path("missing.qss"))
+
+    window._apply_connection_status(True)
+    assert window.connection_status_label.text() == "● Online"
+    assert window.connection_status_label.property("online") is True
+    assert "json" in window.connection_status_label.toolTip()
+
+    window._apply_connection_status(False)
+    assert window.connection_status_label.text() == "● Offline"
+    assert window.connection_status_label.property("online") is False
 
     window.close()
     app.processEvents()

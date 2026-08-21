@@ -841,7 +841,10 @@ class QuizViewer(QWidget):
         """Open the centralized progress manager for this user."""
         from src.controllers.profile_statistics_controller import ProfileStatisticsController
         from src.ui.profile_statistics_dialog import ProfileStatisticsDialog
-        dialog = ProfileStatisticsDialog(ProfileStatisticsController(self.controller.user_id), self)
+        dialog = ProfileStatisticsDialog(ProfileStatisticsController(
+            self.controller.user_id,
+            user_repository=self.controller.user_repository,
+        ), self)
         dialog.exec()
         self.refresh_quiz_list()
 

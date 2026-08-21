@@ -5,19 +5,26 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from src.logic.question_types import MATCH_ANSWER_KEY, MATCH_PROMPT_KEY
 from src.logic.translator import get_translator
-from src.storage.quiz_repository import QuizRepository
 from src.logic.quiz_logic import Quiz
 from src.utils.paths import resolve_stored_path
 from src.config import MASTERY_REQUIRED_SCORE, MASTERY_WRONG_PENALTY
-from src.storage.invitation_repository import InvitationRepository
+from src.storage.repository_factory import (
+    create_class_repository, create_moderation_repository, create_quiz_repository,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class QuizController:
-    def __init__(self, user_id="guest", repo=None, role="student"):
+    def __init__(
+        self, user_id="guest", repo=None, role="student",
+        user_repository=None, class_repository=None,
+    ):
         self.translator = get_translator()
-        self.repo = repo or QuizRepository()
+        self.user_repository = user_repository
+        self.repo = repo or create_quiz_repository(user_repository)
+        self.invites = class_repository or create_class_repository(user_repository)
+        self.moderation = create_moderation_repository(user_repository, quizzes=self.repo)
         self.user_id = user_id or "guest"
         self.role = role
         self.quiz = None
@@ -117,7 +124,7 @@ class QuizController:
     def join_with_code(self, code):
         if self.user_id == "guest":
             return False, "Sign in to join a class with an invitation code."
-        return InvitationRepository().enroll_with_code(code, self.user_id)
+        return self.invites.enroll_with_code(code, self.user_id)
 
     def load_quiz_by_name(self, name, mode="practice"):
         """Initializes a new quiz session."""
@@ -493,10 +500,9 @@ class QuizController:
     # --- Private Helpers ---
     def _visible_quizzes(self):
         """Apply lifecycle/visibility rules before displaying study content."""
-        from src.storage.moderation_repository import ModerationRepository
         content = {
             item["file"]: item
-            for item in ModerationRepository(quizzes=self.repo).get_content_for_selector(
+            for item in self.moderation.get_content_for_selector(
                 self.user_id, self.role
             )
             if item["kind"] == "quiz"

@@ -3,7 +3,6 @@
 import logging
 import uuid
 from pathlib import Path
-from src.storage.flashcard_repository import FlashcardRepository
 from src.utils.paths import resolve_stored_path, to_stored_path
 from src.logic.access_control import (
     can_create_content,
@@ -11,14 +10,27 @@ from src.logic.access_control import (
     is_visibility,
     visibility_submission_status,
 )
-from src.storage.invitation_repository import InvitationRepository
+from src.storage.repository_factory import (
+    create_class_repository,
+    create_flashcard_repository,
+    create_moderation_repository,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class FlashcardEditorController:
-    def __init__(self, owner_id="legacy", role="teacher"):
-        self.repo = FlashcardRepository()
+    def __init__(
+        self, owner_id="legacy", role="teacher", user_repository=None,
+        repo=None, moderation=None, class_repository=None,
+    ):
+        self.repo = repo or create_flashcard_repository(user_repository)
+        self.moderation = moderation or create_moderation_repository(
+            user_repository, flashcards=self.repo
+        )
+        self.invitations = class_repository or create_class_repository(
+            user_repository, self.moderation
+        )
         self.owner_id = str(owner_id)
         self.role = role
         self.current_deck_info = None
@@ -48,25 +60,27 @@ class FlashcardEditorController:
     def get_current_invite_code(self):
         if not self.current_deck_info:
             return ""
-        return InvitationRepository().get_invitation(
+        return self.invitations.get_invitation(
             self.current_deck_info["file"], "flashcard"
         ).get("code", "")
 
     def generate_or_rotate_invite_code(self):
         if not self.current_deck_info:
             return False, "Open a deck before generating an invitation code."
-        return InvitationRepository().generate_or_rotate_code(
+        return self.invitations.generate_or_rotate_code(
             self.current_deck_info["file"], "flashcard", self.owner_id
         )
 
     def get_invite_code(self, name):
         deck = next((item for item in self._editable_decks() if item["name"] == name), None)
-        return InvitationRepository().get_invitation(deck["file"], "flashcard").get("code", "") if deck else ""
+        return self.invitations.get_invitation(deck["file"], "flashcard").get("code", "") if deck else ""
 
     def create_deck(self, name):
         if not can_create_content(self.role):
             return False
-        return self.repo.create_deck(name, owner_id=self.owner_id)
+        return self.repo.create_deck(
+            name, owner_id=self.owner_id, actor_role=self.role
+        )
 
     def load_deck(self, name):
         decks = self._editable_decks()
@@ -93,10 +107,11 @@ class FlashcardEditorController:
 
             # 2. Persist the JSON file
             rel_path = self.current_deck_info["file"]
-            self.repo.save_deck_content(rel_path, cards)
-            from src.storage.moderation_repository import ModerationRepository
+            self.repo.save_deck_content(
+                rel_path, cards, actor_id=self.owner_id, actor_role=self.role
+            )
             status = visibility_submission_status(visibility)
-            ModerationRepository(flashcards=self.repo).set_content_status(
+            self.moderation.set_content_status(
                 rel_path, "flashcard", status, self.owner_id, visibility=visibility,
                 actor_role=self.role,
             )
@@ -179,7 +194,14 @@ class FlashcardEditorController:
             self._owner_for(deck) == self.owner_id,
         ):
             return False
-        return self.repo.copy_deck(original_name, new_name, self.owner_id)
+        return self.repo.copy_deck(
+            original_name, new_name, self.owner_id, actor_role=self.role
+        )
+
+    def get_current_edit_history(self):
+        if not self.current_deck_info:
+            return []
+        return self.repo.get_edit_history(self.current_deck_info["file"])
 
     def _owner_for(self, deck):
         item = next(
@@ -200,8 +222,7 @@ class FlashcardEditorController:
         return [deck for deck in self.repo.get_all_decks() if deck["file"] in allowed]
 
     def _moderation_items(self):
-        from src.storage.moderation_repository import ModerationRepository
-        return ModerationRepository(flashcards=self.repo).get_all_content()
+        return self.moderation.get_all_content()
 
     # =========================================================
     # PATH HELPERS (Business Logic)

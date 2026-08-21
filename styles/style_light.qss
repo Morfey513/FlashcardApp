@@ -390,6 +390,23 @@ QLabel#welcome_label {
     font-weight: bold;
 }
 
+QLabel#connection_status {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 9px;
+    margin-right: 6px;
+    background-color: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+}
+
+QLabel#connection_status[online="true"] {
+    color: #15803d;
+    background-color: #dcfce7;
+    border-color: #86efac;
+}
+
 /* Theme Toggle Button */
 QPushButton#theme_btn {
     background-color: #f5f5f5;

@@ -5,6 +5,10 @@ import uuid
 from pathlib import Path
 
 from src.config import FLASHCARD_DIR, FLASHCARD_INDEX
+from src.storage.content_audit_repository import (
+    ContentAuditRepository,
+    summarize_collection_change,
+)
 from src.utils.paths import resolve_stored_path, to_stored_path
 
 logger = logging.getLogger(__name__)
@@ -58,7 +62,7 @@ class FlashcardRepository:
         self._save_index(decks)
         return decks
 
-    def create_deck(self, name: str, cards=None, owner_id=None):
+    def create_deck(self, name: str, cards=None, owner_id=None, *, actor_role=None):
         if any(deck["name"] == name for deck in self.get_all_decks()):
             return False
         deck_id = str(uuid.uuid4())
@@ -78,9 +82,14 @@ class FlashcardRepository:
         decks = self.get_all_decks()
         decks.append({"id": deck_id, "name": name, "file": to_stored_path(file)})
         self._save_index(decks)
+        ContentAuditRepository.append(
+            file, changed_by=owner_id, role=actor_role,
+            action="created", change_summary=f"Created flashcard deck with {len(cards or [])} cards.",
+            changed_fields=["name", "cards"],
+        )
         return True
 
-    def copy_deck(self, original_name: str, new_name: str, owner_id=None):
+    def copy_deck(self, original_name: str, new_name: str, owner_id=None, *, actor_role=None):
         original = self._find_by_name(original_name)
         if not original:
             return False
@@ -89,11 +98,14 @@ class FlashcardRepository:
             copied = card.copy()
             copied["id"] = str(uuid.uuid4())
             cards.append(copied)
-        return self.create_deck(new_name, cards, owner_id)
+        return self.create_deck(new_name, cards, owner_id, actor_role=actor_role)
 
-    def save_deck_content(self, relative_path: str, cards: list):
+    def save_deck_content(
+        self, relative_path: str, cards: list, *, actor_id=None, actor_role=None
+    ):
         file = self.resolve_path(relative_path)
         metadata = self._read_json(file) if file.exists() else {}
+        old_cards = metadata.get("cards", [])
         self._write_deck(
             file,
             metadata.get("id", file.parent.name),
@@ -101,6 +113,14 @@ class FlashcardRepository:
             cards,
             metadata.get("moderation"),
         )
+        summary, fields = summarize_collection_change("flashcard", old_cards, cards)
+        ContentAuditRepository.append(
+            file, changed_by=actor_id, role=actor_role,
+            change_summary=summary, changed_fields=fields,
+        )
+
+    def get_edit_history(self, relative_path):
+        return ContentAuditRepository.get_history(self.resolve_path(relative_path))
 
     def create_empty_deck(self, name):
         if not self.create_deck(name, []):

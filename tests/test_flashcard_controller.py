@@ -106,7 +106,6 @@ def test_flashcard_controller_join_policy_delegates_for_signed_in_user(tmp_path,
             calls.append((code, user_id))
             return True, "Enrolled"
 
-    monkeypatch.setattr("src.controllers.flashcard_controller.InvitationRepository", Invitations)
-    student = FlashcardController("student-1", repo)
+    student = FlashcardController("student-1", repo, class_repository=Invitations())
     assert student.join_with_code("ABCD-234") == (True, "Enrolled")
     assert calls == [("ABCD-234", "student-1")]

@@ -5,25 +5,11 @@ from src.storage.quiz_repository import QuizRepository
 
 
 def make_flashcard_controller(repo, owner_id="teacher-1", role="teacher"):
-    controller = object.__new__(FlashcardEditorController)
-    controller.repo = repo
-    controller.owner_id = owner_id
-    controller.role = role
-    controller.current_deck_info = None
-    controller.current_cards = []
-    controller.has_unsaved_changes = False
-    return controller
+    return FlashcardEditorController(owner_id, role, repo=repo)
 
 
 def make_quiz_controller(repo, owner_id="teacher-1", role="teacher"):
-    controller = object.__new__(QuizEditorController)
-    controller.repo = repo
-    controller.owner_id = owner_id
-    controller.role = role
-    controller.current_quiz_info = None
-    controller.current_questions = []
-    controller.has_unsaved_changes = False
-    return controller
+    return QuizEditorController(owner_id, role, repo=repo)
 
 
 def test_flashcard_editor_enforces_ownership_and_manages_cards(tmp_path):
@@ -194,11 +180,12 @@ def test_editor_media_and_invitation_delegation(monkeypatch):
     import src.controllers.flashcard_editor_controller as flash_module
     import src.controllers.quiz_editor_controller as quiz_module
 
-    monkeypatch.setattr(flash_module, "InvitationRepository", InvitationStub)
-    monkeypatch.setattr(quiz_module, "InvitationRepository", InvitationStub)
-
-    flash = make_flashcard_controller(RepoStub())
-    quiz = make_quiz_controller(RepoStub())
+    flash = FlashcardEditorController(
+        "teacher-1", "teacher", repo=RepoStub(), class_repository=InvitationStub()
+    )
+    quiz = QuizEditorController(
+        "teacher-1", "teacher", repo=RepoStub(), class_repository=InvitationStub()
+    )
     assert flash.generate_or_rotate_invite_code()[0] is False
     assert quiz.generate_or_rotate_invite_code()[0] is False
 

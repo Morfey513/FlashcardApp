@@ -1,8 +1,8 @@
 # Architecture
 
-Study Buddy is currently an offline-first PyQt6 desktop application. It uses a
-layered design so the present JSON persistence can later be replaced by an API
-and PostgreSQL without rewriting the learning UI.
+Study Buddy is currently an offline-first PyQt6 desktop application. Its
+repository contracts allow persistence to move incrementally from JSON to
+PostgreSQL and later behind an API without rewriting the learning UI.
 
 ## Layered design
 
@@ -19,7 +19,7 @@ Learning logic and shared access rules
 Repository / data-access layer
         |
         v
-JSON content, users, progress, indexes, and media
+JSON/PostgreSQL repositories or the staged local HTTP API
 ```
 
 ### UI layer
@@ -60,18 +60,26 @@ moderation states, visibility choices, labels, and lifecycle rules.
 
 ### Repository layer
 
-`src/storage/` owns JSON reads/writes and content discovery:
+`src/storage/` owns persistence and content discovery. JSON supports offline
+and demo use; authenticated API mode has interchangeable desktop adapters and
+server-owned PostgreSQL implementations:
 
 | Repository | Responsibility |
 |---|---|
 | `QuizRepository` | Quiz metadata, questions, indexes, progress, and quiz-owned media. |
 | `FlashcardRepository` | Deck metadata, cards, indexes, per-user progress, and deck-owned media. |
-| `UserRepository` | Local accounts, password hashes, preferences, roles, and account status. |
+| `UserRepositoryContract` | Storage-independent account operations used by controllers. |
+| `JsonUserRepository` | Default local accounts, hashes, preferences, roles, and status. |
+| `PostgresUserRepository` | SQLAlchemy implementation of the same account contract. |
+| `HttpUserRepository` | Desktop adapter that maps the same contract to FastAPI requests. |
+| `HttpQuizRepository` / `HttpFlashcardRepository` | Controller-compatible remote content, progress, attempt, media, and history operations. |
+| `HttpClassRepository` | Remote invitations, enrollment, roster, analytics, and attempt resolution. |
+| PostgreSQL content repositories | Relational metadata, bodies, classes, learning state, media metadata, and append-only histories. |
 | `ModerationRepository` | Content lifecycle, visibility, review history, and selector access. |
 | `InvitationRepository` | Class-only codes, enrollments, teacher rosters, and access removal. |
 
-Repositories receive configurable base/index paths, which allows tests to use
-isolated temporary directories instead of the real project data.
+JSON repositories receive configurable paths, while SQL repositories receive a
+SQLAlchemy session factory. Both allow isolated tests without production data.
 
 ### Shared utilities and configuration
 
@@ -164,15 +172,24 @@ StudyBuddy/
 |   |   |-- app_settings.py
 |   |   |-- flashcard_logic.py
 |   |   |-- question_types.py
+|   |   |-- passwords.py
 |   |   |-- quiz_logic.py
 |   |   |-- translator.py
 |   |   `-- user_session.py
 |   |-- storage/
 |   |   |-- flashcard_repository.py
 |   |   |-- invitation_repository.py
+|   |   |-- http_user_repository.py
 |   |   |-- moderation_repository.py
+|   |   |-- postgres_models.py
+|   |   |-- postgres_user_repository.py
 |   |   |-- quiz_repository.py
+|   |   |-- repository_factory.py
+|   |   |-- user_repository_contract.py
 |   |   `-- user_repository.py
+|   |-- api/
+|   |   |-- main.py
+|   |   `-- schemas.py
 |   |-- ui/
 |   |   |-- editor/
 |   |   |-- main_window.py
@@ -185,6 +202,7 @@ StudyBuddy/
 |   |-- style.qss
 |   `-- style_light.qss
 |-- tests/
+|-- migrations/                    # Alembic PostgreSQL schema revisions
 |-- requirements.txt
 |-- requirements-dev.txt
 `-- run_tests.py
@@ -199,11 +217,20 @@ StudyBuddy/
 - Content uses stable-ID folders with owned media and per-user progress.
 - Roles, states, visibility, labels, and transitions use shared definitions.
 - Repositories accept alternate paths for isolated automated tests.
+- Repository factories select local JSON contracts for offline/guest use and
+  authenticated HTTP contracts for API sessions without changing UI classes.
+- The local FastAPI identity service issues opaque, hashed, revocable sessions;
+  `HttpUserRepository` lets the unchanged desktop controller use that
+  server-owned boundary without receiving PostgreSQL credentials.
+- Relational content histories preserve both a verified actor foreign key and
+  the original source actor value. New API writes derive the actor from the
+  bearer session, so administrator edits remain attributable to the actual
+  editor without changing content ownership.
 
 Git history records the implementation sequence and individual refactoring
 changes; this document describes only the architecture that remains relevant.
 
-## Planned server evolution
+## Server boundary and planned evolution
 
 The intended migration keeps the current boundaries:
 
@@ -214,7 +241,9 @@ PyQt6 client
         -> Object storage for uploaded media
 ```
 
-The API will replace direct repository access from the desktop client and
-enforce authentication, roles, moderation, invitations, and progress rules on
-the server. Keeping UI, logic, and persistence separated now reduces the
-amount of client code that must change during that migration.
+The local API now replaces direct database access for authenticated desktop
+workflows and enforces authentication, ownership, roles, moderation,
+invitations, progress, and attempt rules. Cloud deployment still requires
+HTTPS, managed secrets, production hosting, object storage, and explicit
+offline synchronization policy; those deployment changes do not require a UI
+rewrite.

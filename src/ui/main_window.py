@@ -1,11 +1,12 @@
 # src/ui/main_window.py
 
 import logging
+import threading
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLabel,
     QApplication, QStackedWidget, QMessageBox, QFrame, QLayout
 )
-from PyQt6.QtCore import QEvent, Qt, QTimer
+from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 
 from src.controllers.main_controller import MainController
 from src.logic.translator import get_translator
@@ -21,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 class MainLauncher(QWidget):
     """Main application window with authentication and settings."""
+
+    connection_status_changed = pyqtSignal(bool)
 
     MANAGED_WINDOW_KEYS = {
         "QuizEditor": "quiz_editor",
@@ -39,6 +42,11 @@ class MainLauncher(QWidget):
         self._launcher_size_timer.setSingleShot(True)
         self._launcher_size_timer.setInterval(350)
         self._launcher_size_timer.timeout.connect(self._save_launcher_size)
+        self._connection_check_running = False
+        self._connection_status_timer = QTimer(self)
+        self._connection_status_timer.setInterval(5000)
+        self._connection_status_timer.timeout.connect(self._request_connection_status)
+        self.connection_status_changed.connect(self._apply_connection_status)
 
         # Paths for themes
         self.dark_path = dark_path
@@ -88,6 +96,7 @@ class MainLauncher(QWidget):
         self.controller.continue_as_guest()
         self.update_ui_for_user()
         self._restore_launcher_size()
+        self._connection_status_timer.start()
 
         # Show main panel immediately
         self.stack.setCurrentWidget(self.main_panel)
@@ -332,6 +341,11 @@ class MainLauncher(QWidget):
         self.welcome_label.setObjectName("welcome_label")
         top_bar.addWidget(self.welcome_label)
         top_bar.addStretch()
+
+        self.connection_status_label = QLabel("● Offline")
+        self.connection_status_label.setObjectName("connection_status")
+        self.connection_status_label.setProperty("online", False)
+        top_bar.addWidget(self.connection_status_label)
 
         self.settings_btn = QPushButton("⚙️")
         self.settings_btn.setObjectName("settings_btn")
@@ -609,8 +623,10 @@ class MainLauncher(QWidget):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        from src.storage.flashcard_repository import FlashcardRepository
-        removed = FlashcardRepository().clear_user_progress(self.controller.get_current_user_id())
+        from src.storage.repository_factory import create_flashcard_repository
+        removed = create_flashcard_repository(self.controller.user_repo).clear_user_progress(
+            self.controller.get_current_user_id()
+        )
         logger.info("Cleared %s flashcard progress files for the active user", removed)
 
     def clear_all_learning_progress(self):
@@ -618,11 +634,10 @@ class MainLauncher(QWidget):
         t = self.translator
         if QMessageBox.question(self, t.t("profile_statistics.confirm_reset_title"), t.t("profile_statistics.confirm_reset_all", scope=t.t("profile_statistics.scope_all")), QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
-        from src.storage.flashcard_repository import FlashcardRepository
-        from src.storage.quiz_repository import QuizRepository
+        from src.storage.repository_factory import create_flashcard_repository, create_quiz_repository
         user_id = self.controller.get_current_user_id()
-        FlashcardRepository().clear_user_progress(user_id)
-        QuizRepository().clear_user_progress(user_id)
+        create_flashcard_repository(self.controller.user_repo).clear_user_progress(user_id)
+        create_quiz_repository(self.controller.user_repo).clear_user_progress(user_id)
 
     def clear_current_user_quiz_progress(self):
         """Confirm and clear only the active user's quiz learning progress."""
@@ -640,8 +655,10 @@ class MainLauncher(QWidget):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        from src.storage.quiz_repository import QuizRepository
-        removed = QuizRepository().clear_user_progress(self.controller.get_current_user_id())
+        from src.storage.repository_factory import create_quiz_repository
+        removed = create_quiz_repository(self.controller.user_repo).clear_user_progress(
+            self.controller.get_current_user_id()
+        )
         logger.info("Cleared %s quiz progress files for the active user", removed)
 
     def resizeEvent(self, event):
@@ -667,6 +684,36 @@ class MainLauncher(QWidget):
                 panel_width,
                 self.height()
             )
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._request_connection_status()
+
+    def _request_connection_status(self):
+        """Check connectivity off the GUI thread so an offline API stays responsive."""
+        if self._connection_check_running or not self.isVisible():
+            return
+        self._connection_check_running = True
+
+        def check():
+            try:
+                online = self.controller.is_online()
+            except Exception:
+                online = False
+            self.connection_status_changed.emit(bool(online))
+
+        threading.Thread(target=check, name="storage-readiness", daemon=True).start()
+
+    def _apply_connection_status(self, online: bool):
+        self._connection_check_running = False
+        self.connection_status_label.setText("● Online" if online else "● Offline")
+        self.connection_status_label.setProperty("online", bool(online))
+        backend = self.controller.get_storage_backend()
+        self.connection_status_label.setToolTip(
+            f"Storage backend: {backend}. Online requires a ready server/database."
+        )
+        self.connection_status_label.style().unpolish(self.connection_status_label)
+        self.connection_status_label.style().polish(self.connection_status_label)
 
     def _restore_launcher_size(self):
         """Restore geometry after Qt has recalculated the role-specific layout."""
@@ -834,6 +881,7 @@ class MainLauncher(QWidget):
         controller = QuizController(
             self.controller.get_current_user_id(),
             role=self.controller.get_current_role(),
+            user_repository=self.controller.user_repo,
         )
         self._launch_sub_window(QuizViewer, controller)
 
@@ -843,7 +891,10 @@ class MainLauncher(QWidget):
             return
         from src.controllers.profile_statistics_controller import ProfileStatisticsController
 
-        stats_controller = ProfileStatisticsController(self.controller.get_current_user_id())
+        stats_controller = ProfileStatisticsController(
+            self.controller.get_current_user_id(),
+            user_repository=self.controller.user_repo,
+        )
         # A fresh dialog deliberately resets filters, expanded groups, scroll
         # position, and temporary render state every time it is opened.
         self.profile_statistics_dialog = ProfileStatisticsDialog(stats_controller, self)
@@ -862,7 +913,8 @@ class MainLauncher(QWidget):
         from src.controllers.quiz_editor_controller import QuizEditorController
 
         controller = QuizEditorController(
-            self.controller.get_current_user_id(), self.controller.get_current_role()
+            self.controller.get_current_user_id(), self.controller.get_current_role(),
+            user_repository=self.controller.user_repo,
         )
         self._launch_sub_window(QuizEditor, controller)
 
@@ -873,6 +925,7 @@ class MainLauncher(QWidget):
         controller = FlashcardController(
             self.controller.get_current_user_id(),
             role=self.controller.get_current_role(),
+            user_repository=self.controller.user_repo,
         )
         self._launch_sub_window(FlashcardViewer, controller)
 
@@ -881,7 +934,10 @@ class MainLauncher(QWidget):
         if role != "admin":
             return
         from src.ui.moderation_dialog import ModerationDialog
-        dialog = ModerationDialog(self.controller.get_current_user_id(), role, self)
+        dialog = ModerationDialog(
+            self.controller.get_current_user_id(), role, self,
+            user_repository=self.controller.user_repo,
+        )
         self._prepare_managed_window(dialog, "moderation_admin")
         dialog.exec()
         self._save_managed_window_size(dialog)
@@ -900,7 +956,8 @@ class MainLauncher(QWidget):
             return
         from src.ui.moderation_dialog import ModerationDialog
         dialog = ModerationDialog(
-            self.controller.get_current_user_id(), role, self, initial_tab="classes"
+            self.controller.get_current_user_id(), role, self,
+            initial_tab="classes", user_repository=self.controller.user_repo,
         )
         self._prepare_managed_window(dialog, "my_classes")
         dialog.exec()
@@ -911,7 +968,8 @@ class MainLauncher(QWidget):
         from src.controllers.flashcard_editor_controller import FlashcardEditorController
 
         controller = FlashcardEditorController(
-            self.controller.get_current_user_id(), self.controller.get_current_role()
+            self.controller.get_current_user_id(), self.controller.get_current_role(),
+            user_repository=self.controller.user_repo,
         )
         self._launch_sub_window(FlashcardEditor, controller)
 

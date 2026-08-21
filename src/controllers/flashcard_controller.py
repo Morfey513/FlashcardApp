@@ -3,9 +3,10 @@
 import logging
 from src.logic.flashcard_logic import FlashcardSession
 from src.logic.translator import get_translator
-from src.storage.flashcard_repository import FlashcardRepository
 from src.utils.paths import resolve_stored_path
-from src.storage.invitation_repository import InvitationRepository
+from src.storage.repository_factory import (
+    create_class_repository, create_flashcard_repository, create_moderation_repository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +17,14 @@ class FlashcardController:
     Handles both study sessions AND deck management.
     """
 
-    def __init__(self, user_id="guest", repo=None, role="student"):
-        self.repo = repo or FlashcardRepository()
+    def __init__(
+        self, user_id="guest", repo=None, role="student",
+        user_repository=None, class_repository=None,
+    ):
+        self.user_repository = user_repository
+        self.repo = repo or create_flashcard_repository(user_repository)
+        self.invites = class_repository or create_class_repository(user_repository)
+        self.moderation = create_moderation_repository(user_repository, flashcards=self.repo)
         self.user_id = user_id or "guest"
         self.role = role
         self.session = None
@@ -94,7 +101,7 @@ class FlashcardController:
     def join_with_code(self, code):
         if self.user_id == "guest":
             return False, "Sign in to join a class with an invitation code."
-        return InvitationRepository().enroll_with_code(code, self.user_id)
+        return self.invites.enroll_with_code(code, self.user_id)
 
     # =========================================================
     # STUDY SESSION MANAGEMENT
@@ -223,10 +230,9 @@ class FlashcardController:
 
     def _visible_decks(self):
         """Apply lifecycle/visibility rules while retaining repository APIs."""
-        from src.storage.moderation_repository import ModerationRepository
         content = {
             item["file"]: item
-            for item in ModerationRepository(flashcards=self.repo).get_content_for_selector(
+            for item in self.moderation.get_content_for_selector(
                 self.user_id, self.role
             )
             if item["kind"] == "flashcard"

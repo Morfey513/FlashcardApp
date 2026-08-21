@@ -26,8 +26,10 @@ application.
 - Teacher assessment reporting with best/average grades, class averages,
   per-question analytics, submission inspection, and CSV result exports.
 - Persistent light/dark themes and English/French language preferences.
-- Local JSON repositories with stable content IDs, content-owned media, index
-  recovery, and isolated progress files.
+- Pluggable repositories: JSON provides the offline/demo mode, while the
+  authenticated desktop can route accounts, content, classes, learning state,
+  moderation, and audit history through FastAPI to PostgreSQL. Database
+  credentials remain on the server.
 
 ## Screenshots
 
@@ -45,6 +47,8 @@ Additional screens are available in [`docs/screenshots/`](docs/screenshots/).
 - PyQt6 and Qt Multimedia/Text-to-Speech
 - QSS light and dark themes
 - JSON persistence
+- FastAPI and Uvicorn (local identity API)
+- SQLAlchemy 2, Alembic, psycopg, and PostgreSQL (incremental migration)
 - pytest
 - Git and GitHub
 
@@ -54,8 +58,8 @@ Additional screens are available in [`docs/screenshots/`](docs/screenshots/).
 PyQt6 UI
    -> Controllers
       -> Learning logic and access rules
-         -> Repositories
-            -> JSON data, progress, and media
+         -> Repository contracts
+            -> JSON, PostgreSQL, or the staged HTTP API
 ```
 
 The UI delegates application flow to controllers, while repositories own file
@@ -72,11 +76,13 @@ StudyBuddy/
 |-- data/                 # Content, users, settings, progress, and media
 |-- docs/                 # Architecture, testing, and screenshots
 |-- src/
+|   |-- api/              # Local FastAPI identity endpoints
 |   |-- controllers/      # Application coordination
 |   |-- logic/            # Learning and permission rules
-|   |-- storage/          # JSON repositories
+|   |-- storage/          # Repository contracts and JSON/PostgreSQL/HTTP adapters
 |   |-- ui/               # PyQt6 windows and dialogs
 |   `-- utils/            # Paths, logging, audio, and TTS
+|-- migrations/           # Alembic database migrations
 |-- styles/               # Dark and light QSS themes
 |-- tests/                # Automated pytest suite
 |-- requirements.txt
@@ -110,8 +116,9 @@ Install the development dependencies and run:
 .\.venv\Scripts\python.exe run_tests.py
 ```
 
-**112 pytest cases provide 43.9% overall branch coverage. Core controllers
-achieve 86.8% branch coverage and utilities 98.5%; the lower overall figure is
+**158 pytest cases are collected (157 pass locally and one optional live-
+PostgreSQL smoke test is skipped), providing 52.7% overall branch coverage. Core controllers
+achieve 87.5% branch coverage and utilities 98.5%; the lower overall figure is
 primarily caused by intentionally lightly tested PyQt presentation code.** The
 controller, Quiz/Test Mode controller, and utility regression floors are 80%,
 80%, and 90%, respectively. Tests cover core learning logic, grading, repositories,
@@ -127,14 +134,19 @@ testing strategy.
 
 ## Future plans
 
-1. Migrate persistence in stages: introduce a Python API, run it on a local
-   server, replace JSON persistence with PostgreSQL, and then deploy the same
-   service architecture to a cloud provider.
-2. Add multi-device identity, secure remote sessions, account recovery, and
+1. Add multi-device identity, secure remote sessions, account recovery, and
    synchronized progress.
+2. Add a deliberate offline/download system:
+   bundled demo decks, metadata-first public downloads, explicit class-content
+   acceptance, versioned synchronization that preserves progress, and cached
+   account-owned content that is locked—not deleted—on logout. Public downloads
+   may remain available offline; class/personal cloud content requires the
+   matching signed-in account, with a separate Clear Downloaded Data action.
 
 ## Documentation
 
 - [Architecture and project structure](docs/architecture.md)
+- [PostgreSQL migration and local setup](docs/database.md)
+- [Proposed PostgreSQL ER diagram](docs/study_buddy_erd.md)
 - [Testing strategy and test inventory](docs/testing.md)
 - [Screenshot catalog](docs/screenshots/README.md)

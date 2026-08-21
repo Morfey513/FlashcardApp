@@ -1,8 +1,5 @@
-import hashlib
-import hmac
 import json
 import logging
-import secrets
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,15 +7,16 @@ from typing import Optional, Dict
 
 from src.config import USERS_FILE
 from src.logic.access_control import is_account_status, is_role
+from src.logic.passwords import PasswordHasher
 
 logger = logging.getLogger(__name__)
 
 
 class UserRepository:
-    """Manages local user accounts without storing plaintext passwords."""
+    """JSON implementation of the user-repository contract."""
 
-    HASH_NAME = "pbkdf2_sha256"
-    HASH_ITERATIONS = 210_000
+    HASH_NAME = PasswordHasher.HASH_NAME
+    HASH_ITERATIONS = PasswordHasher.HASH_ITERATIONS
 
     def __init__(self, users_file: Path = USERS_FILE):
         self.users_file = users_file
@@ -76,6 +74,24 @@ class UserRepository:
         except (OSError, json.JSONDecodeError) as exc:
             logger.error("Error loading users: %s", exc)
             return []
+
+    def get_user_by_id(self, user_id: str) -> Optional[Dict]:
+        """Return one account without its password hash."""
+        try:
+            user = next(
+                (
+                    entry
+                    for entry in self._read_users().get("users", [])
+                    if str(entry.get("id")) == str(user_id)
+                ),
+                None,
+            )
+            if user is None:
+                return None
+            return {key: value for key, value in user.items() if key != "password"}
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.error("Could not load user '%s': %s", user_id, exc)
+            return None
 
     def register(self, name: str, login: str, password: str) -> tuple[bool, str, Optional[Dict]]:
         """Create a local student account with its own default preferences."""
@@ -182,7 +198,8 @@ class UserRepository:
         return False
 
     def set_account_status(
-        self, actor_role: str, user_id: str, status: str, reason: str = ""
+        self, actor_role: str, user_id: str, status: str, reason: str = "",
+        actor_id: str | None = None,
     ) -> bool:
         """Authorized entry point for global account suspension changes."""
         from src.logic.access_control import can_ban_accounts
@@ -204,6 +221,14 @@ class UserRepository:
         except (OSError, json.JSONDecodeError) as exc:
             logger.error("Could not read account status for '%s': %s", login, exc)
         return None
+
+    def logout(self) -> bool:
+        """JSON authentication has no server-side token to revoke."""
+        return True
+
+    def is_online(self) -> bool:
+        """Local JSON storage is the application's offline/demo mode."""
+        return False
 
     def _update_account_field(self, user_id, field, value):
         try:
@@ -252,20 +277,11 @@ class UserRepository:
         return changed
 
     def _hash_password(self, password: str) -> str:
-        salt = secrets.token_hex(16)
-        digest = hashlib.pbkdf2_hmac(
-            "sha256", password.encode("utf-8"), salt.encode("ascii"), self.HASH_ITERATIONS
-        ).hex()
-        return f"{self.HASH_NAME}${self.HASH_ITERATIONS}${salt}${digest}"
+        return PasswordHasher.hash(password)
 
     def _verify_password(self, password: str, stored_value: str) -> bool:
-        try:
-            algorithm, iterations, salt, expected = stored_value.split("$", 3)
-            if algorithm != self.HASH_NAME:
-                return False
-            actual = hashlib.pbkdf2_hmac(
-                "sha256", password.encode("utf-8"), salt.encode("ascii"), int(iterations)
-            ).hex()
-            return hmac.compare_digest(actual, expected)
-        except (TypeError, ValueError):
-            return False
+        return PasswordHasher.verify(password, stored_value)
+
+
+# Explicit name for new code while preserving imports used by existing tests.
+JsonUserRepository = UserRepository

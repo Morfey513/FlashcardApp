@@ -3,7 +3,7 @@
 import logging
 
 from src.logic.translator import get_translator
-from src.storage.user_repository import UserRepository
+from src.storage.repository_factory import configured_storage_backend, create_user_repository
 from src.logic.user_session import UserSession
 from src.logic.app_settings import AppSettings
 from src.config import LAUNCHER_DEFAULT_SIZES, WINDOW_DEFAULT_SIZES
@@ -15,13 +15,25 @@ class MainController:
     """Controller for main window - handles authentication and settings."""
 
     def __init__(self):
-        self.user_repo = UserRepository()
+        self.user_repo = create_user_repository()
         self.session = UserSession()
         self.settings = AppSettings()
         self.translator = get_translator()
         self.translator.set_language(self.settings.get_language(), persist=False)
 
         logger.info("MainController initialized")
+
+    def get_storage_backend(self) -> str:
+        """Return the configured persistence mode for status/help text."""
+        return configured_storage_backend()
+
+    def is_online(self) -> bool:
+        """Report repository readiness without leaking backend exceptions to UI."""
+        try:
+            return bool(self.user_repo.is_online())
+        except Exception as exc:
+            logger.warning("Storage readiness check failed: %s", exc)
+            return False
 
     # =========================================================
     # AUTHENTICATION
@@ -58,12 +70,14 @@ class MainController:
 
     def logout(self):
         """Logout current user."""
+        self.user_repo.logout()
         self.session.logout()
         self.translator.set_language(self.settings.get_language(), persist=False)
         logger.info("User logged out")
 
     def continue_as_guest(self):
         """Set guest mode."""
+        self.user_repo.logout()
         self.session.logout()  # Ensures guest state
         logger.info("Continuing as guest")
 

@@ -30,6 +30,10 @@ class ModerationRepository:
             ("flashcard", self.flashcards, self.flashcards.get_all_decks(), self.flashcards.resolve_path),
             ("quiz", self.quizzes, self.quizzes.get_all_quizzes(), self.quizzes._resolve_path),
         ):
+            remote_loader = getattr(repo, "get_content_items", None)
+            if callable(remote_loader):
+                items.extend(remote_loader())
+                continue
             for entry in entries:
                 file = resolver(entry["file"])
                 data = json.loads(file.read_text(encoding="utf-8"))
@@ -58,6 +62,10 @@ class ModerationRepository:
             return False
         if visibility is not None and not is_visibility(visibility):
             return False
+        repository = self.quizzes if item["kind"] == "quiz" else self.flashcards
+        remote_update = getattr(repository, "update_moderation", None)
+        if callable(remote_update):
+            return bool(remote_update(item, status, visibility, note))
         data = json.loads(item["path"].read_text(encoding="utf-8"))
         metadata, _ = self._metadata(data)
         if visibility is not None:
@@ -106,7 +114,7 @@ class ModerationRepository:
                 continue
             if item["status"] != "published":
                 continue
-            if item["visibility"] == "public" or str(user_id) in {
+            if item.get("server_authorized") or item["visibility"] == "public" or str(user_id) in {
                 str(value) for value in item["allowed_user_ids"]
             }:
                 visible.append(item)
@@ -128,20 +136,23 @@ class ModerationRepository:
                 continue
             if item["status"] != "published":
                 continue
-            if item["visibility"] == "public" or str(user_id) in {
+            if item.get("server_authorized") or item["visibility"] == "public" or str(user_id) in {
                 str(value) for value in item["allowed_user_ids"]
             }:
                 visible.append(item)
         return visible
 
-    @staticmethod
-    def get_preview(item, limit=None):
+    def get_preview(self, item, limit=None):
         """Return reviewable quiz questions/cards and their total count.
 
         The dialog is responsible for presenting each content type.  Keeping
         the original records here lets a moderator inspect choices, answers,
         and attached media instead of only seeing a list of titles.
         """
+        repository = self.quizzes if item["kind"] == "quiz" else self.flashcards
+        remote_preview = getattr(repository, "get_preview", None)
+        if callable(remote_preview):
+            return remote_preview(item, limit)
         try:
             data = json.loads(item["path"].read_text(encoding="utf-8"))
             entries = data.get("questions", []) if item["kind"] == "quiz" else data.get("cards", [])

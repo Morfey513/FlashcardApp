@@ -9,13 +9,12 @@ from PyQt6.QtCore import QSize, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QPixmap
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 
-from src.storage.moderation_repository import ModerationRepository
-from src.storage.invitation_repository import InvitationRepository
 from src.logic.access_control import (
     CONTENT_STATUSES,
     CONTENT_STATUS_LABELS,
     ROLE_LABELS,
     ROLES,
+    ACCOUNT_STATUSES,
     VISIBILITIES,
     VISIBILITY_LABELS,
 )
@@ -246,12 +245,23 @@ class ModerationDialog(QDialog):
         "active": ("#DCFCE7", "#15803D"),
     }
     ROSTER_PAGE_SIZE = 50
-    def __init__(self, actor_id, role="admin", parent=None, initial_tab=None):
+    def __init__(
+        self, actor_id, role="admin", parent=None, initial_tab=None,
+        user_repository=None,
+    ):
         super().__init__(parent)
         self.actor_id = actor_id
         self.role = role
-        self.repo = ModerationRepository()
-        self.invites = InvitationRepository(self.repo)
+        if user_repository is None:
+            from src.storage.repository_factory import create_user_repository
+
+            user_repository = create_user_repository()
+        self.user_repository = user_repository
+        from src.storage.repository_factory import (
+            create_class_repository, create_moderation_repository,
+        )
+        self.repo = create_moderation_repository(self.user_repository)
+        self.invites = create_class_repository(self.user_repository, self.repo)
         self._class_expanded = {}
         self._class_visible_limits = {}
         self._selected_class_item = None
@@ -422,13 +432,48 @@ class ModerationDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.addWidget(QLabel("Account management"))
+
+        filters = QHBoxLayout()
+        self.user_search = QLineEdit()
+        self.user_search.setObjectName("class_search")
+        self.user_search.setPlaceholderText("Search name or login…")
+        self.user_search.setClearButtonEnabled(True)
+        self.user_search.textChanged.connect(self._refresh_user_table)
+        filters.addWidget(self.user_search, 1)
+
+        self.user_role_filter = QComboBox()
+        self.user_role_filter.addItem("All roles", "all")
+        for role in ROLES:
+            self.user_role_filter.addItem(ROLE_LABELS[role], role)
+        self.user_role_filter.setFixedWidth(130)
+        self.user_role_filter.currentIndexChanged.connect(self._refresh_user_table)
+        filters.addWidget(self.user_role_filter)
+
+        self.user_status_filter = QComboBox()
+        self.user_status_filter.addItem("All statuses", "all")
+        for account_status in ACCOUNT_STATUSES:
+            self.user_status_filter.addItem(account_status.title(), account_status)
+        self.user_status_filter.setFixedWidth(130)
+        self.user_status_filter.currentIndexChanged.connect(self._refresh_user_table)
+        filters.addWidget(self.user_status_filter)
+
+        clear_filters = QPushButton("Clear")
+        clear_filters.setObjectName("class_toolbar_button")
+        clear_filters.setFixedSize(90, 34)
+        clear_filters.clicked.connect(self._clear_user_filters)
+        filters.addWidget(clear_filters)
+        layout.addLayout(filters)
+
         self.users = QTreeWidget()
-        self.users.setColumnCount(5)
-        self.users.setHeaderLabels(["Login", "Role", "Status", "Banned at", "Reason"])
-        self.users.setColumnWidth(0, 130)
-        self.users.setColumnWidth(1, 90)
-        self.users.setColumnWidth(2, 85)
-        self.users.setColumnWidth(3, 165)
+        self.users.setColumnCount(6)
+        self.users.setHeaderLabels([
+            "Login", "Name", "Role", "Status", "Banned at", "Reason"
+        ])
+        self.users.setColumnWidth(0, 125)
+        self.users.setColumnWidth(1, 155)
+        self.users.setColumnWidth(2, 90)
+        self.users.setColumnWidth(3, 85)
+        self.users.setColumnWidth(4, 165)
         self.users.currentItemChanged.connect(
             lambda current, _previous: self._sync_selected_user_role(current)
         )
@@ -458,8 +503,20 @@ class ModerationDialog(QDialog):
         self.tabs.addTab(tab, "Users")
 
     def refresh(self):
-        from src.storage.user_repository import UserRepository
-        self.user_data = UserRepository().get_all_users()
+        self.user_data = self.user_repository.get_all_users()
+        if self.role == "teacher" and not self.user_data:
+            classes = self.invites.get_owned_classes(self.actor_id, "all")
+            user_ids = [
+                row["user_id"] for item in classes for row in item.get("roster", [])
+            ]
+            lookup = getattr(self.user_repository, "get_public_users_by_ids", None)
+            if callable(lookup):
+                self.user_data = lookup(user_ids)
+            else:
+                self.user_data = [
+                    user for user_id in user_ids
+                    if (user := self.user_repository.get_user_by_id(user_id)) is not None
+                ]
         self.users_by_id = {str(user["id"]): user for user in self.user_data}
         if self.role == "teacher":
             self._refresh_classes()
@@ -474,29 +531,55 @@ class ModerationDialog(QDialog):
             icon = "📝" if item["kind"] == "quiz" else "🎴"
             self.items.addItem(f"{icon} {item['name']}")
         self._show_content_detail(self.items.currentRow())
+        self._refresh_user_table()
+        self._refresh_content()
+        self._refresh_classes()
+
+    def _clear_user_filters(self):
+        self.user_search.clear()
+        self.user_role_filter.setCurrentIndex(0)
+        self.user_status_filter.setCurrentIndex(0)
+
+    def _refresh_user_table(self):
+        """Render the administrator table from name/login and role/status filters."""
+        if not hasattr(self, "users") or not hasattr(self, "user_data"):
+            return
+        search = self.user_search.text().strip().casefold()
+        role_filter = self.user_role_filter.currentData()
+        status_filter = self.user_status_filter.currentData()
         self.users.clear()
         for user in self.user_data:
+            name = user.get("name") or user["login"]
+            if search and search not in f"{name} {user['login']}".casefold():
+                continue
+            if role_filter != "all" and user.get("role") != role_filter:
+                continue
+            if status_filter != "all" and user.get("status", "active") != status_filter:
+                continue
             banned_at = user.get("banned_at") or "—"
             if "T" in banned_at:
                 banned_at = banned_at.replace("T", " ").split("+")[0]
             row = QTreeWidgetItem([
-                user["login"], user["role"], user.get("status", "active"),
+                user["login"], name, user["role"], user.get("status", "active"),
                 banned_at, user.get("ban_reason") or "—",
             ])
             background, foreground = self.STATUS_COLORS.get(
                 user.get("status", "active"), ("#F3F4F6", "#4B5563")
             )
-            row.setBackground(2, QColor(background))
-            row.setForeground(2, QColor(foreground))
+            row.setBackground(3, QColor(background))
+            row.setForeground(3, QColor(foreground))
             row.setData(0, Qt.ItemDataRole.UserRole, user)
             self.users.addTopLevelItem(row)
         self._sync_selected_user_role(self.users.currentItem())
-        self._refresh_content()
-        self._refresh_classes()
 
     def _clear_class_filters(self):
         self.class_search.clear()
         self.class_type_filter.setCurrentIndex(0)
+
+    def _student_display_name(self, user_id):
+        """Prefer the roster-safe display name, falling back only if unavailable."""
+        user = self.users_by_id.get(str(user_id), {})
+        return user.get("name") or user.get("login") or str(user_id)
 
     def _refresh_classes(self):
         """Render cards after filtering titles and enrolled student logins."""
@@ -515,10 +598,7 @@ class ModerationDialog(QDialog):
                 child.widget().deleteLater()
         filtered = []
         for item in classes:
-            student_names = [
-                self.users_by_id.get(row["user_id"], {}).get("login", row["user_id"])
-                for row in item["roster"]
-            ]
+            student_names = [self._student_display_name(row["user_id"]) for row in item["roster"]]
             haystack = " ".join([item["name"], *student_names]).casefold()
             if not search or search in haystack:
                 filtered.append(item)
@@ -616,7 +696,7 @@ class ModerationDialog(QDialog):
         visible_students = item["roster"][:limit]
         for student in visible_students:
             user = self.users_by_id.get(student["user_id"], {})
-            login = user.get("login", student["user_id"])
+            login = self._student_display_name(student["user_id"])
             mastered, total, percent = student["mastered"], student["total"], student["percent"]
             if is_flashcard:
                 row_values = [login, f"{mastered} / {total}", ""]
@@ -824,7 +904,7 @@ class ModerationDialog(QDialog):
                     user = self.users_by_id.get(student["user_id"], {})
                     latest = student.get("latest_attempt") or {}
                     writer.writerow([
-                        item["name"], user.get("login", student["user_id"]),
+                        item["name"], self._student_display_name(student["user_id"]),
                         student.get("enrolled_at", ""),
                         "" if student.get("best_grade") is None else student["best_grade"],
                         "" if student.get("average_grade") is None else student["average_grade"],
@@ -1113,16 +1193,20 @@ class ModerationDialog(QDialog):
         user = row.data(0, Qt.ItemDataRole.UserRole)
         if str(user['id']) == str(self.actor_id):
             return
-        from src.storage.user_repository import UserRepository
-        repository = UserRepository()
         if action == "toggle":
             if user.get("status") == "active":
                 reason, accepted = QInputDialog.getText(self, "Suspend account", "Reason for suspension:")
                 if not accepted:
                     return
-                repository.set_account_status(self.role, user['id'], "banned", reason)
+                self.user_repository.set_account_status(
+                    self.role, user['id'], "banned", reason,
+                    actor_id=str(self.actor_id),
+                )
             else:
-                repository.set_account_status(self.role, user['id'], "active")
+                self.user_repository.set_account_status(
+                    self.role, user['id'], "active",
+                    actor_id=str(self.actor_id),
+                )
         else:
-            repository.update_role(user['id'], action)
+            self.user_repository.update_role(user['id'], action)
         self.refresh()

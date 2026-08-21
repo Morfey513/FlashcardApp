@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 import uuid
 
-from src.storage.quiz_repository import QuizRepository
 from src.utils.paths import resolve_stored_path, to_stored_path
 from src.logic.access_control import (
     can_create_content,
@@ -12,16 +11,28 @@ from src.logic.access_control import (
     is_visibility,
     visibility_submission_status,
 )
-from src.storage.invitation_repository import InvitationRepository
 from src.logic.test_settings import normalize_test_settings
+from src.storage.repository_factory import (
+    create_class_repository,
+    create_moderation_repository,
+    create_quiz_repository,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class QuizEditorController:
-    def __init__(self, owner_id="legacy", role="teacher"):
-
-        self.repo = QuizRepository()
+    def __init__(
+        self, owner_id="legacy", role="teacher", user_repository=None,
+        repo=None, moderation=None, class_repository=None,
+    ):
+        self.repo = repo or create_quiz_repository(user_repository)
+        self.moderation = moderation or create_moderation_repository(
+            user_repository, quizzes=self.repo
+        )
+        self.invitations = class_repository or create_class_repository(
+            user_repository, self.moderation
+        )
         self.owner_id = str(owner_id)
         self.role = role
         self.current_quiz_info = None
@@ -34,9 +45,8 @@ class QuizEditorController:
 
     def get_quiz_entries(self):
         """Editable quiz rows with their lifecycle status for the editor menu."""
-        from src.storage.moderation_repository import ModerationRepository
         metadata = {
-            item["file"]: item for item in ModerationRepository(quizzes=self.repo).get_all_content()
+            item["file"]: item for item in self.moderation.get_all_content()
         }
         return [
             {**quiz, "status": metadata[quiz["file"]]["status"],
@@ -56,7 +66,7 @@ class QuizEditorController:
     def get_current_invite_code(self):
         if not self.current_quiz_info:
             return ""
-        return InvitationRepository().get_invitation(
+        return self.invitations.get_invitation(
             self.current_quiz_info["file"], "quiz"
         ).get("code", "")
 
@@ -68,13 +78,13 @@ class QuizEditorController:
     def generate_or_rotate_invite_code(self):
         if not self.current_quiz_info:
             return False, "Open a quiz before generating an invitation code."
-        return InvitationRepository().generate_or_rotate_code(
+        return self.invitations.generate_or_rotate_code(
             self.current_quiz_info["file"], "quiz", self.owner_id
         )
 
     def get_invite_code(self, name):
         quiz = next((item for item in self._editable_quizzes() if item["name"] == name), None)
-        return InvitationRepository().get_invitation(quiz["file"], "quiz").get("code", "") if quiz else ""
+        return self.invitations.get_invitation(quiz["file"], "quiz").get("code", "") if quiz else ""
 
     def process_image_path(self, absolute_path: str) -> str:
         """Convert absolute path to project-relative path."""
@@ -119,11 +129,11 @@ class QuizEditorController:
             self.repo.save_quiz_content(
                 self.current_quiz_info["file"], questions,
                 normalize_test_settings(test_settings),
+                actor_id=self.owner_id, actor_role=self.role,
             )
             self.repo.prune_progress(self.current_quiz_info["file"], set(valid_ids))
-            from src.storage.moderation_repository import ModerationRepository
             status = visibility_submission_status(visibility)
-            ModerationRepository(quizzes=self.repo).set_content_status(
+            self.moderation.set_content_status(
                 self.current_quiz_info["file"], "quiz", status, self.owner_id,
                 visibility=visibility,
                 actor_role=self.role,
@@ -157,7 +167,9 @@ class QuizEditorController:
     def create_new_quiz(self, name):
         if not can_create_content(self.role):
             return False
-        return self.repo.create_quiz(name, owner_id=self.owner_id)
+        return self.repo.create_quiz(
+            name, owner_id=self.owner_id, actor_role=self.role
+        )
 
     def copy_quiz(self, original_name, new_name):
         original = next(
@@ -169,7 +181,14 @@ class QuizEditorController:
             str(self.get_current_owner(original)) == self.owner_id,
         ):
             return False
-        return self.repo.copy_quiz(original_name, new_name, self.owner_id)
+        return self.repo.copy_quiz(
+            original_name, new_name, self.owner_id, actor_role=self.role
+        )
+
+    def get_current_edit_history(self):
+        if not self.current_quiz_info:
+            return []
+        return self.repo.get_edit_history(self.current_quiz_info["file"])
 
     def get_current_owner(self, quiz):
         item = next(
@@ -190,8 +209,7 @@ class QuizEditorController:
         return [quiz for quiz in self.repo.get_all_quizzes() if quiz["file"] in allowed]
 
     def _moderation_items(self):
-        from src.storage.moderation_repository import ModerationRepository
-        return ModerationRepository(quizzes=self.repo).get_all_content()
+        return self.moderation.get_all_content()
 
     def delete_quiz(self, name):
         quiz = next((item for item in self._editable_quizzes() if item["name"] == name), None)
