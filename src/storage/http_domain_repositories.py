@@ -222,7 +222,17 @@ class HttpQuizRepository(_HttpContentRepositoryBase):
         return attempts[0] if attempts else None
 
     def resolve_test_attempt(self, value, attempt_id, action, actor_id):
-        return None
+        # The server derives the acting user from the bearer token.  Keep the
+        # desktop repository contract (resolved attempt or ``None``) while
+        # routing through the class moderation endpoint used by API mode.
+        del actor_id
+        status, body = self.user_repository._request(
+            "POST",
+            f"/api/v1/classes/quiz/{_content_id(value)}/attempts/{attempt_id}/resolve",
+            {"action": action},
+            authenticated=True,
+        )
+        return dict(body) if status == 200 and isinstance(body, dict) else None
 
     def prune_progress(self, value, valid_ids):
         progress = self.get_quiz_progress(value)

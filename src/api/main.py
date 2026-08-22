@@ -622,6 +622,12 @@ def create_app(
         if payload.quiz_id != quiz_id or payload.id != attempt_id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Attempt ID does not match path")
         available_content(request, user, "quiz", quiz_id)
+        existing = request.app.state.learning_repository.get_quiz_attempt(attempt_id)
+        if existing is not None:
+            if existing["user_id"] != user["id"]:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "Attempt belongs to another user")
+            if existing["quiz_id"] != quiz_id:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Attempt belongs to another quiz")
         source = payload.model_dump()
         source["user_id"] = user["id"]
         if not request.app.state.learning_repository.import_quiz_attempt(source):

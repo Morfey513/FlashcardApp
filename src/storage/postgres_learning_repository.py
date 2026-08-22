@@ -121,6 +121,12 @@ class PostgresLearningRepository:
             logger.error("Could not load attempts for quiz '%s': %s", quiz_id, exc)
             return []
 
+    def get_quiz_attempt(self, attempt_id: str) -> dict | None:
+        """Load one attempt without applying a user filter for API ownership checks."""
+        with self.session_factory() as session:
+            attempt = session.get(QuizAttemptModel, str(attempt_id))
+            return self._attempt_public(session, attempt) if attempt is not None else None
+
     def assessment_summary(self, quiz_id: str, user_id: str) -> dict:
         attempts = [
             attempt for attempt in self.get_quiz_attempts(quiz_id, user_id)

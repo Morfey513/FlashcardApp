@@ -23,6 +23,7 @@ from src.storage.http_content_history_repository import HttpContentHistoryReposi
 from src.storage.http_class_repository import HttpClassRepository
 from src.storage.http_learning_repository import HttpLearningRepository
 from src.storage.http_domain_repositories import HttpFlashcardRepository, HttpQuizRepository
+from src.storage.repository_factory import create_flashcard_repository, create_quiz_repository
 from src.storage.postgres_class_repository import PostgresClassRepository
 from src.storage.postgres_content_metadata_repository import PostgresContentMetadataRepository
 from src.storage.postgres_models import Base, UserSessionModel
@@ -227,6 +228,46 @@ def test_http_repository_resolves_roster_display_profiles_without_admin_access(i
     assert first.get_user_by_id(current["id"])["name"] == "Roster Teacher"
 
 
+def test_http_quiz_repository_resolves_attempt_through_class_endpoint(identity_api):
+    client, users, _sessions = identity_api
+    teacher_http = _adapter_for(client)
+    _ok, _message, teacher = teacher_http.register(
+        "Resolution Teacher", "resolution.teacher", "password1"
+    )
+    assert users.update_role(teacher["id"], "teacher")
+    authenticated = teacher_http.authenticate("resolution.teacher", "password1")
+    assert authenticated["role"] == "teacher"
+    quizzes = HttpQuizRepository(teacher_http)
+    assert quizzes.create_quiz(
+        "Resolution Quiz",
+        [{"id": "q1", "type": "short_answer", "question": "Q", "answer": "A"}],
+    )
+    quiz = next(row for row in quizzes.get_all_quizzes() if row["name"] == "Resolution Quiz")
+    attempt = quizzes.save_test_attempt(quiz["file"], {
+        "id": "attempt-1", "status": "in_progress", "total": 1,
+        "answers": [], "user_id": teacher["id"],
+    })
+    assert attempt
+    result = quizzes.resolve_test_attempt(quiz["file"], "attempt-1", "refund", teacher["id"])
+    assert result["status"] == "refunded"
+    assert result["resolution"] == "refund"
+
+
+def test_repository_factory_uses_json_before_api_authentication(monkeypatch):
+    monkeypatch.setenv("STUDY_BUDDY_STORAGE", "api")
+    user = HttpUserRepository()
+    assert create_quiz_repository(user).__class__.__name__ == "QuizRepository"
+    assert create_flashcard_repository(user).__class__.__name__ == "FlashcardRepository"
+
+
+def test_repository_factory_uses_http_after_api_authentication(monkeypatch):
+    monkeypatch.setenv("STUDY_BUDDY_STORAGE", "api")
+    user = HttpUserRepository()
+    user._token = "test-token"
+    assert create_quiz_repository(user).__class__ is HttpQuizRepository
+    assert create_flashcard_repository(user).__class__ is HttpFlashcardRepository
+
+
 def test_http_repository_admin_operations_are_enforced_by_server(identity_api):
     client, users, _sessions = identity_api
     student_repository = _adapter_for(client)
@@ -429,6 +470,74 @@ def test_authenticated_learning_progress_and_attempt_api(identity_api):
     adapter = HttpLearningRepository(user_http)
     assert adapter.get_progress("quiz", "learning-quiz")["question-1"]["correct"] == 2
     assert adapter.get_quiz_attempts("learning-quiz")[0]["score"] == 1
+
+
+def test_quiz_attempt_put_enforces_owner_and_quiz(identity_api):
+    client, users, sessions = identity_api
+    owner = _register(client, "attempt.owner")
+    other = _register(client, "attempt.other")
+    outsider = _register(client, "attempt.outsider")
+    metadata = PostgresContentMetadataRepository(sessions)
+    for quiz_id, visibility in (("attempt-quiz", "public"), ("other-quiz", "public"),
+                                ("private-quiz", "private")):
+        assert metadata.import_quiz({
+            "id": quiz_id, "name": quiz_id,
+            "moderation": {
+                "owner_id": owner["user"]["id"], "status": "published",
+                "visibility": visibility,
+            },
+        }, f"{quiz_id}.json")
+
+    def attempt_payload(quiz_id, status="submitted"):
+        return {
+            "id": "owned-attempt", "quiz_id": quiz_id,
+            "started_at": "2026-08-17T12:00:00+00:00",
+            "status": status, "score": 1, "total": 1, "percentage": 100.0,
+            "passed": True,
+            "answers": [{"question_id": "q1", "question": "2 + 2?",
+                         "type": "short_answer", "user_answer": "4",
+                         "correct_answer": "4"}],
+        }
+
+    owner_headers = {"Authorization": f"Bearer {owner['access_token']}"}
+    other_headers = {"Authorization": f"Bearer {other['access_token']}"}
+    outsider_headers = {"Authorization": f"Bearer {outsider['access_token']}"}
+    created = client.put(
+        "/api/v1/quizzes/attempt-quiz/attempts/owned-attempt",
+        headers=owner_headers, json=attempt_payload("attempt-quiz"),
+    )
+    assert created.status_code == 200
+
+    denied = client.put(
+        "/api/v1/quizzes/attempt-quiz/attempts/owned-attempt",
+        headers=other_headers,
+        json=attempt_payload("attempt-quiz", "refunded"),
+    )
+    assert denied.status_code == 403
+    original = client.get(
+        "/api/v1/quizzes/attempt-quiz/attempts", headers=owner_headers,
+    ).json()[0]
+    assert original["user_id"] == owner["user"]["id"]
+    assert original["status"] == "submitted"
+    assert original["answers"][0]["user_answer"] == "4"
+
+    cross_quiz = client.put(
+        "/api/v1/quizzes/other-quiz/attempts/owned-attempt",
+        headers=owner_headers, json=attempt_payload("other-quiz"),
+    )
+    assert cross_quiz.status_code == 400
+    assert client.get(
+        "/api/v1/quizzes/attempt-quiz/attempts", headers=owner_headers,
+    ).json()[0]["quiz_id"] == "attempt-quiz"
+
+    no_access = client.put(
+        "/api/v1/quizzes/private-quiz/attempts/owned-attempt",
+        headers=outsider_headers, json=attempt_payload("private-quiz"),
+    )
+    assert no_access.status_code in {403, 404}
+    assert client.get(
+        "/api/v1/quizzes/attempt-quiz/attempts", headers=owner_headers,
+    ).json()[0]["quiz_id"] == "attempt-quiz"
 
 
 def test_content_body_api_owner_write_and_authenticated_read(identity_api):
