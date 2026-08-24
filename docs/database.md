@@ -101,6 +101,38 @@ The PyQt client can use PostgreSQL directly for this transitional local stage.
 The FastAPI service and desktop HTTP adapter now provide the preferred first
 server boundary, so PyQt no longer needs database credentials in API mode.
 
+## Phase 3: Server-authoritative assessment service
+
+Phase 3 adds a server-authoritative Class-Only assessment flow without changing
+Study Mode, offline JSON behavior, or legacy generic attempts. An assessment
+freezes a randomized question/presentation snapshot at start, including
+question order, choices, matching options, and ordering items. Resume reads
+that snapshot rather than live or newly randomized source content.
+
+Learners receive answer-safe projections and submit responses for server-side
+grading. Deadlines finalize attempts as timed out using persisted responses and
+frozen grading keys; post-expiry responses cannot mutate the attempt. The
+assessment mutation transaction locks the parent attempt with PostgreSQL
+`SELECT ... FOR UPDATE`, serializing checkpoint, submit, timeout, and
+snapshot-aware teacher/admin resolution operations.
+
+Terminal results honor `immediate`, `after_due_date`, and `never` answer-review
+policies. Generic quiz-body access redacts grading material for learners while
+authorized teachers and administrators retain required source-content access.
+Snapshot-backed attempts are protected from generic mutation routes, while
+legacy attempts with a null assessment snapshot remain compatible.
+
+Migration `20260823_0007_assessment_foundation` is additive: it introduced the
+nullable assessment snapshot and frozen question rows without changing the
+canonical question tables or requiring historical-attempt backfill.
+
+The implementation is covered by focused assessment/API tests and a dedicated
+PostgreSQL concurrency suite covering concurrent checkpoint/submit races and
+teacher resolution. Final evidence is 39 focused Phase 3/API tests passed, 196
+tests passed in the full suite with no skips, and 15 dedicated PostgreSQL
+concurrency tests passed. The full run reported four non-blocking Alembic
+deprecation warnings.
+
 ## Local setup on Windows
 
 PostgreSQL commands below assume PostgreSQL 17 is installed. Start its Windows

@@ -34,6 +34,20 @@ To run pytest without producing coverage artifacts during a quick local check:
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
+## Phase 3 assessment validation
+
+The server-authoritative Class-Only assessment flow is covered by focused
+start/resume, frozen randomized presentation, answer redaction, grading,
+timeout, review-policy, authorization, legacy-compatibility, and teacher/admin
+resolution tests. PostgreSQL race tests use the dedicated
+`STUDY_BUDDY_TEST_DATABASE_URL` database and verify serialized checkpoint,
+submit, timeout, and resolution behavior.
+
+Final milestone evidence: **39 focused Phase 3/API tests passed**, **196 tests
+passed in the full suite with no skips**, and **15 dedicated PostgreSQL
+concurrency tests passed**. The full run emitted four non-blocking Alembic
+deprecation warnings.
+
 ## Coverage baseline
 
 The namespace-aware baseline, recorded with Python 3.13, 157 passing cases, and
