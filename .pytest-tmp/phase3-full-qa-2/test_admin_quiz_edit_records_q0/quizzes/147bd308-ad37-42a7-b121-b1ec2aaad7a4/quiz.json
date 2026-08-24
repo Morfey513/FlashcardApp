@@ -1,0 +1,34 @@
+{
+    "id": "147bd308-ad37-42a7-b121-b1ec2aaad7a4",
+    "name": "Teacher quiz",
+    "questions": [
+        {
+            "id": "q1",
+            "type": "short_answer",
+            "question": "Edited?",
+            "answer": "B"
+        },
+        {
+            "id": "q2",
+            "type": "short_answer",
+            "question": "Added?",
+            "answer": "C"
+        }
+    ],
+    "test_settings": {
+        "time_limit_minutes": 10,
+        "passing_grade_percent": 80,
+        "attempt_limit": 1,
+        "due_at": null,
+        "answer_review_policy": "immediate"
+    },
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "pending_review",
+        "visibility": "class_only",
+        "allowed_user_ids": [],
+        "reviewed_by": "admin-1",
+        "reviewed_at": "2026-08-24T04:06:54.227144+00:00",
+        "review_note": ""
+    }
+}

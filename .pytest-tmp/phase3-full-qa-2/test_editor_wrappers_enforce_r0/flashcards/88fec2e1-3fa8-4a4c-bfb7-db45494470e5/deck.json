@@ -1,0 +1,14 @@
+{
+    "id": "88fec2e1-3fa8-4a4c-bfb7-db45494470e5",
+    "name": "Admin deck copy",
+    "cards": [],
+    "moderation": {
+        "owner_id": "admin-1",
+        "status": "draft",
+        "visibility": "private",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": ""
+    }
+}

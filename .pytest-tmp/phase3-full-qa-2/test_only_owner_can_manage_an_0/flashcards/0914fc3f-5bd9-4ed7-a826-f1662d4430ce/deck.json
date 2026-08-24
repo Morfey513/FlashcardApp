@@ -1,0 +1,14 @@
+{
+    "id": "0914fc3f-5bd9-4ed7-a826-f1662d4430ce",
+    "name": "Private Deck",
+    "cards": [],
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "draft",
+        "visibility": "private",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": ""
+    }
+}

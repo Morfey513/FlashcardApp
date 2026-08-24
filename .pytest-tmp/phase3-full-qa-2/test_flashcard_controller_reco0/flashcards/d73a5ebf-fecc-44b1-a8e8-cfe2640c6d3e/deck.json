@@ -1,0 +1,20 @@
+{
+    "id": "d73a5ebf-fecc-44b1-a8e8-cfe2640c6d3e",
+    "name": "One Card",
+    "cards": [
+        {
+            "id": "only",
+            "front": "Q",
+            "back": "A"
+        }
+    ],
+    "moderation": {
+        "owner_id": "legacy",
+        "status": "published",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": "",
+        "visibility": "public"
+    }
+}

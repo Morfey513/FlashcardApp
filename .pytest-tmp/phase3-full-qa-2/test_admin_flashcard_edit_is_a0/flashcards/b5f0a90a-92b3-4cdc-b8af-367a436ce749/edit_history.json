@@ -1,0 +1,25 @@
+[
+    {
+        "id": "b762861b-7a57-4cef-9784-0259a0b9d285",
+        "changed_by": "teacher-1",
+        "role": "teacher",
+        "timestamp": "2026-08-24T04:06:54.196580+00:00",
+        "action": "created",
+        "change_summary": "Created flashcard deck with 1 cards.",
+        "changed_fields": [
+            "name",
+            "cards"
+        ]
+    },
+    {
+        "id": "179d6215-5128-45b9-907c-7b88d1d8164f",
+        "changed_by": "admin-1",
+        "role": "admin",
+        "timestamp": "2026-08-24T04:06:54.204140+00:00",
+        "action": "updated",
+        "change_summary": "Updated flashcard deck: edited cards.",
+        "changed_fields": [
+            "cards"
+        ]
+    }
+]

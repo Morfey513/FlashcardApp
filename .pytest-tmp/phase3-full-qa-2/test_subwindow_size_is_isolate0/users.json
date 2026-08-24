@@ -1,0 +1,48 @@
+{
+    "users": [
+        {
+            "id": "1",
+            "role": "teacher",
+            "login": "admin",
+            "password": "pbkdf2_sha256$210000$bd9257a01377310d7765174b90ef5b60$81af61036284a591657e5b23b3f1750d91161b91d91254229731206b6ac08891",
+            "name": "Admin User"
+        },
+        {
+            "id": "2",
+            "role": "student",
+            "login": "student",
+            "password": "pbkdf2_sha256$210000$790e4e0c8e81f76740142e1ff3e009ed$4a53ded74b6e46f7a213b877ec7a7b07d2830a3741dafb9702fe5685769e0f64",
+            "name": "Student User"
+        },
+        {
+            "id": "212e75ae-e662-4606-933e-17860b19e4ad",
+            "role": "student",
+            "status": "active",
+            "login": "first.user",
+            "password": "pbkdf2_sha256$210000$b6dbfee5a08c7911908ec68c1a743efc$646d913fde5ae05d0b448f45044963ba43eedb23936196158750f1d2f2f96b6e",
+            "name": "First",
+            "preferences": {
+                "theme": "dark",
+                "language": "en",
+                "window_sizes": {
+                    "quiz_editor": [
+                        880,
+                        640
+                    ]
+                }
+            }
+        },
+        {
+            "id": "533fff57-d742-40ee-afc1-085981578ced",
+            "role": "student",
+            "status": "active",
+            "login": "second.user",
+            "password": "pbkdf2_sha256$210000$b639cc1ecdb7e439eb6bcbf0351a6853$61967f83a2d8cc11f6dfaa2473c8c1df86f8c65b989c04e45c664ea80d441862",
+            "name": "Second",
+            "preferences": {
+                "theme": "dark",
+                "language": "en"
+            }
+        }
+    ]
+}

@@ -89,7 +89,7 @@ class PostgresContentBodyRepository:
             logger.error("Could not import flashcard body '%s': %s", deck_id, exc)
             return False
 
-    def get_quiz(self, quiz_id: str) -> dict | None:
+    def get_quiz(self, quiz_id: str, *, include_answers: bool = True) -> dict | None:
         try:
             with self.session_factory() as session:
                 metadata = session.get(QuizMetadataModel, str(quiz_id))
@@ -100,7 +100,7 @@ class PostgresContentBodyRepository:
                 ).order_by(QuizQuestionModel.position)).all()
                 return {
                     "id": metadata.id, "name": metadata.name,
-                    "questions": [self._question_public(session, row) for row in rows],
+                    "questions": [self._question_public(session, row, include_answers=include_answers) for row in rows],
                 }
         except SQLAlchemyError as exc:
             logger.error("Could not load quiz body '%s': %s", quiz_id, exc)
@@ -222,7 +222,7 @@ class PostgresContentBodyRepository:
         session.execute(delete(FlashcardModel).where(FlashcardModel.deck_id == deck_id))
 
     @staticmethod
-    def _question_public(session, row):
+    def _question_public(session, row, *, include_answers: bool = True):
         result = {
             "id": row.question_id, "question": row.question_text,
             "type": row.question_type, "answer": row.correct_answer,
@@ -250,6 +250,10 @@ class PostgresContentBodyRepository:
             media = session.get(MediaModel, attachment.media_id)
             result["has_image"] = True
             result["image_path"] = media.storage_key
+        if not include_answers:
+            result.pop("answer", None)
+            if "pairs" in result:
+                result["pairs"] = [{"prompt": pair["prompt"], "answer": None} for pair in result["pairs"]]
         return result
 
     @staticmethod

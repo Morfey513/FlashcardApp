@@ -1,0 +1,14 @@
+{
+    "theme": "dark",
+    "language": "en",
+    "window_sizes": {
+        "quiz_editor": [
+            840,
+            640
+        ],
+        "flashcard_editor": [
+            880,
+            680
+        ]
+    }
+}

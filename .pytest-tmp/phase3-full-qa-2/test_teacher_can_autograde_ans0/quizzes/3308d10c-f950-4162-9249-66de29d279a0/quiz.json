@@ -1,0 +1,34 @@
+{
+    "id": "3308d10c-f950-4162-9249-66de29d279a0",
+    "name": "Partial",
+    "questions": [
+        {
+            "id": "q1",
+            "type": "short_answer",
+            "question": "Q1",
+            "answer": "A"
+        },
+        {
+            "id": "q2",
+            "type": "short_answer",
+            "question": "Q2",
+            "answer": "B"
+        }
+    ],
+    "test_settings": {
+        "time_limit_minutes": 0,
+        "passing_grade_percent": 50,
+        "attempt_limit": 1,
+        "due_at": null,
+        "answer_review_policy": "immediate"
+    },
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "published",
+        "visibility": "class_only",
+        "allowed_user_ids": [],
+        "reviewed_by": "admin",
+        "reviewed_at": "2026-08-24T04:07:29.210448+00:00",
+        "review_note": ""
+    }
+}

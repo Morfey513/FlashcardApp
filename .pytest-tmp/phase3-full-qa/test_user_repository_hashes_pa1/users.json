@@ -1,0 +1,18 @@
+{
+    "users": [
+        {
+            "id": "1",
+            "role": "teacher",
+            "login": "admin",
+            "password": "pbkdf2_sha256$210000$ec5c52ab34edb9b9dc7599882036a0d9$12ee27a56d8ace1d5a59e1984939967e79ca8e43ed23b0faf15030a8aa18dd6d",
+            "name": "Admin User"
+        },
+        {
+            "id": "2",
+            "role": "student",
+            "login": "student",
+            "password": "pbkdf2_sha256$210000$0c288be6bc635607d52fe4262fb63fd9$899a57e2152349a54cdc8cdec468aea9c031a85916a49ba39176fc0f098aeb03",
+            "name": "Student User"
+        }
+    ]
+}

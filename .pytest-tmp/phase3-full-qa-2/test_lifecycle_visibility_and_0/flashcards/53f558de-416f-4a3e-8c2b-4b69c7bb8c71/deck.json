@@ -1,0 +1,14 @@
+{
+    "id": "53f558de-416f-4a3e-8c2b-4b69c7bb8c71",
+    "name": "Teacher draft",
+    "cards": [],
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "banned",
+        "visibility": "public",
+        "allowed_user_ids": [],
+        "reviewed_by": "admin",
+        "reviewed_at": "2026-08-24T04:07:14.861578+00:00",
+        "review_note": ""
+    }
+}

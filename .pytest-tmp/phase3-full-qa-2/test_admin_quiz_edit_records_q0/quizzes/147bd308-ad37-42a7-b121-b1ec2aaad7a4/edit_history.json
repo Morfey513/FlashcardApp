@@ -1,0 +1,26 @@
+[
+    {
+        "id": "f2457a87-c7ef-4c5b-9995-d53f335f720c",
+        "changed_by": "teacher-1",
+        "role": "teacher",
+        "timestamp": "2026-08-24T04:06:54.218977+00:00",
+        "action": "created",
+        "change_summary": "Created quiz with 1 questions.",
+        "changed_fields": [
+            "name",
+            "questions"
+        ]
+    },
+    {
+        "id": "ab898d87-8149-4c39-978a-5bb8df64cbab",
+        "changed_by": "admin-1",
+        "role": "admin",
+        "timestamp": "2026-08-24T04:06:54.224093+00:00",
+        "action": "updated",
+        "change_summary": "Updated quiz: questions 1 \u2192 2; assessment settings changed.",
+        "changed_fields": [
+            "questions",
+            "test_settings"
+        ]
+    }
+]

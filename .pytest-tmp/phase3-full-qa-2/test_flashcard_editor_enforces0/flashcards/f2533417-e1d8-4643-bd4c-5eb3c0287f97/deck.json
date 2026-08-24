@@ -1,0 +1,20 @@
+{
+    "id": "f2533417-e1d8-4643-bd4c-5eb3c0287f97",
+    "name": "Other",
+    "cards": [
+        {
+            "id": "c2",
+            "front": "Two",
+            "back": "2"
+        }
+    ],
+    "moderation": {
+        "owner_id": "teacher-2",
+        "status": "draft",
+        "visibility": "private",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": ""
+    }
+}

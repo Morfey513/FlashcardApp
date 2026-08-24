@@ -1,0 +1,56 @@
+{
+    "quiz_id": "4e8ae5fa-449d-40fb-bb66-f67c50c5ce5c",
+    "quiz_name": "Class assessment",
+    "user_id": "student-1",
+    "mode": "test",
+    "started_at": "2026-08-24T04:04:36.112867+00:00",
+    "last_activity_at": "2026-08-24T04:04:36.116712+00:00",
+    "score": 2,
+    "total": 2,
+    "percentage": 100.0,
+    "passing_grade_percent": 75,
+    "passed": true,
+    "attempt_number": 1,
+    "status": "submitted",
+    "counts_toward_limit": true,
+    "current_question": 2,
+    "answers": [
+        {
+            "question_id": "q1",
+            "question": "2 + 2?",
+            "user_answer": "4",
+            "correct_answer": "4",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:36.114336+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q2",
+            "question": "3 + 3?",
+            "user_answer": "6",
+            "correct_answer": "6",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:36.116660+00:00",
+            "response_seconds": 0
+        }
+    ],
+    "id": "a2359418-1c7c-4797-97b7-ceb4008677f6",
+    "created_at": "2026-08-24T04:04:36.113421+00:00",
+    "answered_count": 2,
+    "submitted_at": "2026-08-24T04:04:36.118882+00:00",
+    "duration_seconds": 0
+}

@@ -1,0 +1,16 @@
+{
+    "id": "fac6adaa-1998-4152-9498-63356cef03e2",
+    "name": "Media Deck",
+    "cards": [
+        {
+            "id": "card-1",
+            "front": "Question",
+            "back": "Answer",
+            "image": ".pytest-tmp/phase3-full-qa-2/test_flashcard_media_is_copied0/flashcards/fac6adaa-1998-4152-9498-63356cef03e2/media/picture.png",
+            "audio": {
+                "front": ".pytest-tmp/phase3-full-qa-2/test_flashcard_media_is_copied0/flashcards/fac6adaa-1998-4152-9498-63356cef03e2/media/pronunciation.mp3",
+                "back": ".pytest-tmp/phase3-full-qa-2/test_flashcard_media_is_copied0/flashcards/fac6adaa-1998-4152-9498-63356cef03e2/media/pronunciation.mp3"
+            }
+        }
+    ]
+}

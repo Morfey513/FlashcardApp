@@ -1,0 +1,14 @@
+[
+    {
+        "id": "64d75061-aadf-441c-89c1-55c9e1357404",
+        "changed_by": "teacher-1",
+        "role": "unknown",
+        "timestamp": "2026-08-24T04:07:29.408616+00:00",
+        "action": "created",
+        "change_summary": "Created quiz with 1 questions.",
+        "changed_fields": [
+            "name",
+            "questions"
+        ]
+    }
+]

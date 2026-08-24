@@ -1,0 +1,40 @@
+{
+    "users": [
+        {
+            "id": "1",
+            "role": "teacher",
+            "login": "admin",
+            "password": "pbkdf2_sha256$210000$3baba9f7b0bb982e8de94b1960d4f4fb$0b3637bdfdd743149598773edd6520df16f51a5b12f6ad90dfdb1ff9284a90a1",
+            "name": "Admin User"
+        },
+        {
+            "id": "2",
+            "role": "student",
+            "login": "student",
+            "password": "pbkdf2_sha256$210000$985767c23deff52027dbbb318e471f1f$9be2a2ac3243448d90ddf2fec409ca41f1de2ef61925ab095a2ee06480e79e48",
+            "name": "Student User"
+        },
+        {
+            "id": "2f50534d-2c6d-4206-820b-566a38337c9c",
+            "role": "student",
+            "status": "active",
+            "login": "teacher.geometry",
+            "password": "pbkdf2_sha256$210000$e9d599c2b765761cf08c4dfd6213c7c0$2c42ed4ac20baf0bc2da90d848c95c39c5b32336d6263e58be4cf3626feb6d92",
+            "name": "Teacher",
+            "preferences": {
+                "theme": "dark",
+                "language": "en",
+                "launcher_size": [
+                    940,
+                    760
+                ],
+                "window_sizes": {
+                    "flashcard_editor": [
+                        920,
+                        670
+                    ]
+                }
+            }
+        }
+    ]
+}

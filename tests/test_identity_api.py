@@ -61,6 +61,40 @@ def _adapter_for(client):
     return HttpUserRepository(base_url="http://testserver", requester=requester)
 
 
+def test_assessment_checkpoint_rejects_cross_quiz_without_mutation(identity_api):
+    client, _users, _sessions = identity_api
+    registration = _register(client, "checkpoint.owner")
+
+    class LearningStub:
+        checkpoint_called = False
+
+        def get_assessment(self, user_id, attempt_id):
+            return {"id": attempt_id, "quiz_id": "quiz-a", "status": "in_progress"}
+
+        def checkpoint_assessment(self, *args):
+            self.checkpoint_called = True
+            return {"saved": True}
+
+    learning = LearningStub()
+    client.app.state.learning_repository = learning
+    response = client.put(
+        "/api/v1/quizzes/quiz-b/assessments/attempt-1/responses/0",
+        json={"user_answer": "answer"},
+        headers={"Authorization": f"Bearer {registration['access_token']}"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Assessment was not found"
+    assert learning.checkpoint_called is False
+
+
+def test_assessment_start_requires_authentication(identity_api):
+    client, _users, _sessions = identity_api
+    response = client.post("/api/v1/quizzes/quiz-a/assessments")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required"
+
+
 def test_health_and_protected_profile(identity_api):
     client, _users, _sessions = identity_api
 
@@ -626,7 +660,7 @@ def test_desktop_domain_repositories_complete_remote_content_workflow(identity_a
     )
     assert HttpClassRepository(student_http).enroll_with_code(code, student["id"])[0]
     student_quizzes = HttpQuizRepository(student_http)
-    assert student_quizzes.load_quiz_questions(quiz["file"])[0]["answer"] == "4"
+    assert "answer" not in student_quizzes.load_quiz_questions(quiz["file"])[0]
     monkeypatch.setenv("STUDY_BUDDY_STORAGE", "api")
     assert "Remote Quiz" in QuizController(
         student["id"], role="student", user_repository=student_http

@@ -1,0 +1,46 @@
+{
+    "id": "09c17564-776c-4e7b-bf74-5908a39c5ca1",
+    "name": "Assessment",
+    "questions": [
+        {
+            "id": "q1",
+            "type": "short_answer",
+            "question": "Capital?",
+            "answer": "Ottawa"
+        },
+        {
+            "id": "q2",
+            "type": "short_answer",
+            "question": "Organ?",
+            "answer": "Heart"
+        }
+    ],
+    "test_settings": {
+        "time_limit_minutes": 0,
+        "passing_grade_percent": 80,
+        "attempt_limit": 3,
+        "due_at": null,
+        "answer_review_policy": "immediate"
+    },
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "published",
+        "visibility": "class_only",
+        "allowed_user_ids": [
+            "student-1"
+        ],
+        "reviewed_by": "admin",
+        "reviewed_at": "2026-08-24T04:07:11.033431+00:00",
+        "review_note": "",
+        "enrollments": {
+            "student-1": {
+                "enrolled_at": "2026-08-24T04:07:11.036710+00:00"
+            }
+        },
+        "invite": {
+            "code": "ASSE-G7DA",
+            "created_at": "2026-08-24T04:07:11.035566+00:00",
+            "rotated_at": null
+        }
+    }
+}

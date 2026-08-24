@@ -1,0 +1,20 @@
+{
+    "id": "0aea92bf-ca86-4310-84b6-2313f7359c2e",
+    "name": "Stable",
+    "cards": [
+        {
+            "id": "c1",
+            "front": "Q",
+            "back": "A"
+        }
+    ],
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "draft",
+        "visibility": "private",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": ""
+    }
+}

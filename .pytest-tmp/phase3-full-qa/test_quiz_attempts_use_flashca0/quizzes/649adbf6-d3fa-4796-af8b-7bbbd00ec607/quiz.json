@@ -1,0 +1,28 @@
+{
+    "id": "649adbf6-d3fa-4796-af8b-7bbbd00ec607",
+    "name": "Single",
+    "questions": [
+        {
+            "id": "q1",
+            "type": "short_answer",
+            "question": "One",
+            "answer": "1"
+        }
+    ],
+    "test_settings": {
+        "time_limit_minutes": 0,
+        "passing_grade_percent": 80,
+        "attempt_limit": 1,
+        "due_at": null,
+        "answer_review_policy": "immediate"
+    },
+    "moderation": {
+        "owner_id": "legacy",
+        "status": "published",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": "",
+        "visibility": "public"
+    }
+}

@@ -1,0 +1,12 @@
+[
+    {
+        "id": "e4bc2c65-6118-4baf-8fff-16fb4e3693d1",
+        "name": "Teacher quiz copy",
+        "file": ".pytest-tmp/phase3-full-qa-2/test_editor_wrappers_enforce_r0/quizzes/e4bc2c65-6118-4baf-8fff-16fb4e3693d1/quiz.json"
+    },
+    {
+        "id": "5a1f8282-aecd-417e-875c-77d28906fbf8",
+        "name": "Admin quiz copy",
+        "file": ".pytest-tmp/phase3-full-qa-2/test_editor_wrappers_enforce_r0/quizzes/5a1f8282-aecd-417e-875c-77d28906fbf8/quiz.json"
+    }
+]

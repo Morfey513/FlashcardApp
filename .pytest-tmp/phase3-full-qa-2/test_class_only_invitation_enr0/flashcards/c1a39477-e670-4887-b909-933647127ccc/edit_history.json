@@ -1,0 +1,14 @@
+[
+    {
+        "id": "8417a4f2-fdd5-448e-958f-d8a7d9ce8b72",
+        "changed_by": "teacher-1",
+        "role": "unknown",
+        "timestamp": "2026-08-24T04:07:10.961253+00:00",
+        "action": "created",
+        "change_summary": "Created flashcard deck with 0 cards.",
+        "changed_fields": [
+            "name",
+            "cards"
+        ]
+    }
+]

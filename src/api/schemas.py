@@ -143,6 +143,14 @@ class QuizAttemptRequest(StrictRequest):
     answers: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class AssessmentResponseRequest(StrictRequest):
+    user_answer: Any = None
+
+
+class AssessmentSubmitRequest(StrictRequest):
+    responses: dict[str, Any] = Field(default_factory=dict)
+
+
 class ContentBodyRequest(StrictRequest):
     id: str = Field(min_length=1, max_length=64)
     name: str = Field(default="", max_length=255)

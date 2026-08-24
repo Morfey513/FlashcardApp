@@ -1,0 +1,37 @@
+{
+    "quiz_id": "529b0c52-5fea-4c3f-9983-c06f4f6aa293",
+    "quiz_name": "Interrupted",
+    "user_id": "teacher-1",
+    "mode": "test",
+    "started_at": "2026-08-24T04:04:35.809748+00:00",
+    "last_activity_at": "2026-08-24T04:04:35.811972+00:00",
+    "score": 0,
+    "total": 2,
+    "percentage": 0.0,
+    "passing_grade_percent": 80,
+    "passed": null,
+    "attempt_number": 1,
+    "status": "refunded",
+    "counts_toward_limit": false,
+    "current_question": 2,
+    "answers": [
+        {
+            "question_id": "q2",
+            "question": "Q2",
+            "type": "short_answer",
+            "user_answer": "B",
+            "correct_answer": "B",
+            "is_correct": true,
+            "answered_at": "2026-08-24T04:04:35.810928+00:00",
+            "response_seconds": 0
+        }
+    ],
+    "id": "4635ae8c-f938-4163-a7b9-6f1d169456a5",
+    "created_at": "2026-08-24T04:04:35.810332+00:00",
+    "answered_count": 1,
+    "interrupted_at": "2026-08-24T04:04:35.812850+00:00",
+    "last_question": 2,
+    "resolved_at": "2026-08-24T04:04:35.821016+00:00",
+    "resolved_by": "teacher-1",
+    "resolution": "refund"
+}

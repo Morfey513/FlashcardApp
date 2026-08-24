@@ -1,0 +1,25 @@
+{
+    "id": "773734a4-755f-42cf-90e0-31be4107ac53",
+    "name": "Geography",
+    "questions": [
+        {
+            "type": "matching",
+            "question": "Capitals",
+            "pairs": [
+                {
+                    "prompt": "France",
+                    "answer": "Paris"
+                }
+            ],
+            "id": "10c47a60-f64e-4d34-8ccf-00ececd137df",
+            "image_path": "legacy.png"
+        }
+    ],
+    "test_settings": {
+        "time_limit_minutes": 0,
+        "passing_grade_percent": 80,
+        "attempt_limit": 1,
+        "due_at": null,
+        "answer_review_policy": "immediate"
+    }
+}

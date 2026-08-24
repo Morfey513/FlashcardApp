@@ -1,0 +1,20 @@
+{
+    "id": "1d0ed0d1-9da7-4135-8810-2132d94b0be4",
+    "name": "Science",
+    "cards": [
+        {
+            "id": "c1",
+            "front": "Question",
+            "back": "Answer"
+        }
+    ],
+    "moderation": {
+        "owner_id": "legacy",
+        "status": "published",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": "",
+        "visibility": "public"
+    }
+}

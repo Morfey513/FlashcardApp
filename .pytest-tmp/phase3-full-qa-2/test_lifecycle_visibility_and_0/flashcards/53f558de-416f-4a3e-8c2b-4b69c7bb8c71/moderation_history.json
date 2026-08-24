@@ -1,0 +1,14 @@
+[
+    {
+        "timestamp": "2026-08-24T04:07:14.859970+00:00",
+        "action": "published",
+        "actor_id": "admin",
+        "note": ""
+    },
+    {
+        "timestamp": "2026-08-24T04:07:14.861578+00:00",
+        "action": "banned",
+        "actor_id": "admin",
+        "note": ""
+    }
+]

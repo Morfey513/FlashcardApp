@@ -1,0 +1,21 @@
+{
+    "id": "c660dc7e-0f5e-4de1-aaf0-66954de4251c",
+    "name": "Empty",
+    "questions": [],
+    "test_settings": {
+        "time_limit_minutes": 0,
+        "passing_grade_percent": 80,
+        "attempt_limit": 1,
+        "due_at": null,
+        "answer_review_policy": "immediate"
+    },
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "published",
+        "visibility": "public",
+        "allowed_user_ids": [],
+        "reviewed_by": "admin",
+        "reviewed_at": "2026-08-24T04:04:35.159775+00:00",
+        "review_note": ""
+    }
+}

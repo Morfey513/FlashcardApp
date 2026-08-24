@@ -1,0 +1,20 @@
+{
+    "id": "63996cad-2b06-4b53-a9a7-6a471704adb1",
+    "name": "Complete",
+    "cards": [
+        {
+            "id": "only",
+            "front": "Q",
+            "back": "A"
+        }
+    ],
+    "moderation": {
+        "owner_id": "legacy",
+        "status": "published",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": "",
+        "visibility": "public"
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "id": "76529e03-fc63-4dfd-bdad-92729eec0501",
+    "name": "One",
+    "questions": [],
+    "test_settings": {
+        "time_limit_minutes": 0,
+        "passing_grade_percent": 80,
+        "attempt_limit": 1,
+        "due_at": null,
+        "answer_review_policy": "immediate"
+    }
+}

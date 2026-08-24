@@ -1,0 +1,40 @@
+{
+    "quiz_id": "1eb85de9-79b4-480f-819a-7c2bd00002b5",
+    "quiz_name": "Public Test",
+    "user_id": "teacher-1",
+    "mode": "test",
+    "started_at": "2026-08-24T04:07:29.046850+00:00",
+    "last_activity_at": "2026-08-24T04:07:29.047868+00:00",
+    "score": 1,
+    "total": 1,
+    "percentage": 100.0,
+    "passing_grade_percent": null,
+    "passed": null,
+    "attempt_number": 1,
+    "status": "submitted",
+    "counts_toward_limit": true,
+    "current_question": 1,
+    "answers": [
+        {
+            "question_id": "q1",
+            "question": "Q",
+            "user_answer": "A",
+            "correct_answer": "A",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:07:29.047849+00:00",
+            "response_seconds": 0
+        }
+    ],
+    "id": "b4289423-50a2-44ae-98ec-68135717de30",
+    "created_at": "2026-08-24T04:07:29.047341+00:00",
+    "answered_count": 1,
+    "submitted_at": "2026-08-24T04:07:29.048632+00:00",
+    "duration_seconds": 0
+}

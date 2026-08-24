@@ -1,11 +1,12 @@
 """PostgreSQL persistence for authenticated learning progress and quiz attempts."""
 
 import logging
+import random
 from datetime import datetime, timezone
 from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy import delete, select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from src.storage.database import create_session_factory
 from src.storage.postgres_models import (
@@ -13,6 +14,7 @@ from src.storage.postgres_models import (
     FlashcardProgressModel,
     QuizAttemptAnswerModel,
     QuizAttemptModel,
+    QuizAttemptQuestionModel,
     QuizMetadataModel,
     QuizQuestionProgressModel,
     UserModel,
@@ -26,6 +28,222 @@ class PostgresLearningRepository:
 
     def __init__(self, session_factory=None):
         self.session_factory = session_factory or create_session_factory()
+
+    def start_assessment(self, user_id, quiz, settings, questions):
+        """Create or resume one frozen, server-authoritative assessment."""
+        import uuid
+        from sqlalchemy import and_
+        user_id, quiz_id = str(user_id), str(quiz.get("id"))
+        now = datetime.now(timezone.utc)
+        deadline = None
+        if settings.get("time_limit_minutes"):
+            from datetime import timedelta
+            deadline = (now + timedelta(minutes=settings["time_limit_minutes"])).isoformat()
+        snapshot = {"version": 1, **settings, "question_count": len(questions), "started_at": now.isoformat(), "deadline_at": deadline}
+        try:
+            with self.session_factory.begin() as session:
+                existing = session.scalars(select(QuizAttemptModel).where(
+                    QuizAttemptModel.user_id == user_id,
+                    QuizAttemptModel.quiz_id == quiz_id,
+                    QuizAttemptModel.assessment_snapshot.is_not(None),
+                    QuizAttemptModel.status.in_(["in_progress", "abandoned"]),
+                ).order_by(QuizAttemptModel.started_at.desc())).first()
+                if existing:
+                    return self._assessment_public(session, existing)
+                completed = session.scalars(select(QuizAttemptModel).where(
+                    QuizAttemptModel.user_id == user_id, QuizAttemptModel.quiz_id == quiz_id,
+                    QuizAttemptModel.assessment_snapshot.is_not(None),
+                    QuizAttemptModel.status.in_(["submitted", "timed_out", "marked_zero"]),
+                    QuizAttemptModel.counts_toward_limit.is_(True),
+                )).all()
+                if settings.get("attempt_limit", 0) and len(completed) >= settings["attempt_limit"]:
+                    return None
+                attempt = QuizAttemptModel(id=str(uuid.uuid4()), user_id=user_id, quiz_id=quiz_id,
+                    mode="assessment", status="in_progress", started_at=now,
+                    last_activity_at=now, total=len(questions), attempt_number=1,
+                    passing_grade_percent=settings.get("passing_grade_percent"), assessment_snapshot=snapshot)
+                session.add(attempt)
+                session.flush()
+                # The presentation is randomized exactly once, before it is
+                # persisted. Resume reads these rows and never reruns this.
+                frozen_questions = list(questions)
+                random.shuffle(frozen_questions)
+                for position, question in enumerate(frozen_questions):
+                    answer = question.get("answer")
+                    if question.get("type") == "matching":
+                        answer = {str(pair.get("prompt")): pair.get("answer") for pair in question.get("pairs", [])}
+                    presentation = {k: question.get(k) for k in ("id", "question", "type", "choices", "has_image", "image_path", "media") if k in question}
+                    if isinstance(presentation.get("choices"), list):
+                        presentation["choices"] = list(presentation["choices"])
+                        random.shuffle(presentation["choices"])
+                    if question.get("type") == "matching":
+                        pairs = question.get("pairs") or []
+                        presentation["pairs"] = [{"prompt": pair.get("prompt"), "answer": None} for pair in pairs]
+                        presentation["right_options"] = list(question.get("right_options") or [pair.get("answer") for pair in pairs])
+                        random.shuffle(presentation["right_options"])
+                    if question.get("type") == "ordering":
+                        # Ordering bodies persist their canonical order under
+                        # ``answer`` (choices are derived from it by the
+                        # content repository).  Freeze the complete set of
+                        # selectable items at attempt creation time; never
+                        # reconstruct it from live question rows on resume.
+                        presentation["items"] = list(
+                            question.get("items")
+                            or question.get("choices")
+                            or question.get("answer")
+                            or []
+                        )
+                        random.shuffle(presentation["items"])
+                    if question.get("type") == "true_false":
+                        presentation["choices"] = list(question.get("choices") or [True, False])
+                    grading = {"type": question.get("type"), "answer": answer}
+                    session.add(QuizAttemptQuestionModel(attempt_id=attempt.id, position=position,
+                        question_id=str(question.get("id")), presentation_json=presentation, grading_key_json=grading))
+                return self._assessment_public(session, attempt)
+        except SQLAlchemyError as exc:
+            logger.error("Could not start assessment: %s", exc)
+            if isinstance(exc, IntegrityError):
+                with self.session_factory() as session:
+                    existing = session.scalars(select(QuizAttemptModel).where(
+                        QuizAttemptModel.user_id == user_id, QuizAttemptModel.quiz_id == quiz_id,
+                        QuizAttemptModel.assessment_snapshot.is_not(None),
+                        QuizAttemptModel.status.in_(["in_progress", "abandoned"]),
+                    ).order_by(QuizAttemptModel.started_at.desc())).first()
+                    if existing:
+                        return self._assessment_public(session, existing)
+            return None
+
+    def get_assessment(self, user_id, attempt_id):
+        with self.session_factory() as session:
+            attempt = session.get(QuizAttemptModel, str(attempt_id))
+            if not attempt or attempt.user_id != str(user_id) or attempt.assessment_snapshot is None:
+                return None
+            if attempt.status in {"submitted", "timed_out", "marked_zero"}:
+                return self._assessment_result(session, attempt)
+            return self._assessment_public(session, attempt)
+
+    def checkpoint_assessment(self, user_id, attempt_id, position, response):
+        try:
+            with self.session_factory.begin() as session:
+                attempt = session.scalar(select(QuizAttemptModel).where(
+                    QuizAttemptModel.id == str(attempt_id),
+                    QuizAttemptModel.user_id == str(user_id),
+                ).with_for_update())
+                if not attempt or attempt.assessment_snapshot is None or attempt.status != "in_progress":
+                    return None
+                deadline = (attempt.assessment_snapshot or {}).get("deadline_at")
+                if deadline:
+                    try:
+                        expires = datetime.fromisoformat(str(deadline).replace("Z", "+00:00"))
+                        if expires.tzinfo is None: expires = expires.replace(tzinfo=timezone.utc)
+                        if datetime.now(timezone.utc) >= expires:
+                            return self._finalize_assessment(session, attempt, timed_out=True)
+                    except ValueError:
+                        pass
+                frozen = session.scalar(select(QuizAttemptQuestionModel).where(
+                    QuizAttemptQuestionModel.attempt_id == attempt.id, QuizAttemptQuestionModel.position == int(position)))
+                if frozen is None:
+                    return None
+                answer_id = str(uuid5(NAMESPACE_URL, f"study-buddy:{attempt.id}:{position}"))
+                current = session.get(QuizAttemptAnswerModel, answer_id)
+                if current is None:
+                    current = QuizAttemptAnswerModel(id=answer_id, attempt_id=attempt.id, question_id=frozen.question_id, position=position, question_text=(frozen.presentation_json or {}).get("question", ""), question_type=(frozen.grading_key_json or {}).get("type", ""))
+                    session.add(current)
+                current.user_answer = response
+                attempt.last_activity_at = datetime.now(timezone.utc)
+                return {"attempt_id": attempt.id, "position": int(position), "saved": True}
+        except (SQLAlchemyError, ValueError, TypeError):
+            return None
+
+    def submit_assessment(self, user_id, attempt_id, responses=None, timed_out=False):
+        try:
+            with self.session_factory.begin() as session:
+                attempt = session.scalar(select(QuizAttemptModel).where(
+                    QuizAttemptModel.id == str(attempt_id),
+                    QuizAttemptModel.user_id == str(user_id),
+                ).with_for_update())
+                if not attempt or attempt.assessment_snapshot is None or attempt.status != "in_progress":
+                    return None
+                deadline = (attempt.assessment_snapshot or {}).get("deadline_at")
+                if deadline:
+                    try:
+                        expires = datetime.fromisoformat(str(deadline).replace("Z", "+00:00"))
+                        if expires.tzinfo is None:
+                            expires = expires.replace(tzinfo=timezone.utc)
+                        timed_out = timed_out or datetime.now(timezone.utc) >= expires
+                    except ValueError:
+                        pass
+                return self._finalize_assessment(session, attempt, responses=responses, timed_out=timed_out)
+        except (SQLAlchemyError, ValueError, TypeError) as exc:
+            logger.error("Could not submit assessment: %s", exc); return None
+
+    def _finalize_assessment(self, session, attempt, responses=None, timed_out=False):
+        """Grade an assessment from its frozen keys and transition it terminally.
+
+        ``responses`` is deliberately ignored for timeout finalization: only
+        answers checkpointed before the deadline are eligible for grading.
+        """
+        from src.logic.assessment_grading import grade_assessment
+
+        rows = session.scalars(select(QuizAttemptQuestionModel).where(
+            QuizAttemptQuestionModel.attempt_id == attempt.id
+        ).order_by(QuizAttemptQuestionModel.position)).all()
+        stored = {str(a.position): a.user_answer for a in session.scalars(
+            select(QuizAttemptAnswerModel).where(QuizAttemptAnswerModel.attempt_id == attempt.id)
+        ).all()}
+        if not timed_out:
+            stored.update(responses or {})
+        data = [{"position": row.position, "question_id": row.question_id,
+                 "grading_key_json": row.grading_key_json} for row in rows]
+        results, score, percentage = grade_assessment(data, stored)
+        for result in results:
+            answer = session.scalar(select(QuizAttemptAnswerModel).where(
+                QuizAttemptAnswerModel.attempt_id == attempt.id,
+                QuizAttemptAnswerModel.position == result["position"],
+            ))
+            if answer is None:
+                grading = data[result["position"]]["grading_key_json"] or {}
+                answer = QuizAttemptAnswerModel(
+                    id=str(uuid5(NAMESPACE_URL, f"study-buddy:{attempt.id}:{result['position']}")),
+                    attempt_id=attempt.id, question_id=result["question_id"],
+                    position=result["position"], question_type=grading.get("type", ""),
+                )
+                session.add(answer)
+            answer.user_answer, answer.is_correct = result["user_answer"], result["is_correct"]
+        attempt.status = "timed_out" if timed_out else "submitted"
+        attempt.submitted_at = datetime.now(timezone.utc)
+        attempt.score = score
+        attempt.total = len(rows)
+        attempt.percentage = percentage
+        attempt.passed = percentage >= (attempt.passing_grade_percent or 0)
+        attempt.counts_toward_limit = True
+        return self._assessment_result(session, attempt)
+
+    @staticmethod
+    def _assessment_public(session, attempt):
+        rows = session.scalars(select(QuizAttemptQuestionModel).where(QuizAttemptQuestionModel.attempt_id == attempt.id).order_by(QuizAttemptQuestionModel.position)).all()
+        return {"id": attempt.id, "quiz_id": attempt.quiz_id, "status": attempt.status, "started_at": attempt.started_at.isoformat(), "total": attempt.total, "questions": [{"position": r.position, **(r.presentation_json or {})} for r in rows]}
+
+    @staticmethod
+    def _assessment_result(session, attempt):
+        result = {"id": attempt.id, "quiz_id": attempt.quiz_id, "status": attempt.status, "score": attempt.score, "total": attempt.total, "percentage": attempt.percentage, "passed": attempt.passed}
+        snapshot = attempt.assessment_snapshot or {}
+        policy = snapshot.get("answer_review_policy", "immediate")
+        due = snapshot.get("due_at")
+        reveal = policy == "immediate"
+        if policy == "after_due_date" and due:
+            try:
+                deadline = datetime.fromisoformat(str(due).replace("Z", "+00:00"))
+                if deadline.tzinfo is None: deadline = deadline.replace(tzinfo=timezone.utc)
+                reveal = datetime.now(timezone.utc) >= deadline
+            except ValueError:
+                reveal = False
+        if reveal:
+            answers = session.scalars(select(QuizAttemptAnswerModel).where(QuizAttemptAnswerModel.attempt_id == attempt.id).order_by(QuizAttemptAnswerModel.position)).all()
+            result["answers"] = [{"position": a.position, "question_id": a.question_id, "user_answer": a.user_answer, "is_correct": a.is_correct} for a in answers]
+        else:
+            result["answers"] = []
+        return result
 
     def import_flashcard_progress(self, deck_id: str, user_id: str, progress: dict) -> bool:
         return self._replace_progress(
@@ -167,6 +385,39 @@ class PostgresLearningRepository:
             return 0
 
     def resolve_attempt(self, quiz_id: str, attempt_id: str, action: str, actor_id: str):
+        # Snapshot-backed assessments must be resolved from their private frozen keys.
+        with self.session_factory.begin() as session:
+            frozen_attempt = session.scalar(select(QuizAttemptModel).where(
+                QuizAttemptModel.id == str(attempt_id),
+            ).with_for_update())
+            if frozen_attempt and frozen_attempt.quiz_id == str(quiz_id) and frozen_attempt.assessment_snapshot is not None:
+                if frozen_attempt.status not in {"in_progress", "abandoned"}:
+                    return None
+                now = datetime.now(timezone.utc)
+                if action == "refund":
+                    frozen_attempt.status, frozen_attempt.counts_toward_limit = "refunded", False
+                elif action in {"submit_current", "mark_zero"}:
+                    if action == "mark_zero":
+                        score = 0
+                    else:
+                        from src.logic.assessment_grading import grade_assessment
+                        rows = session.scalars(select(QuizAttemptQuestionModel).where(QuizAttemptQuestionModel.attempt_id == frozen_attempt.id).order_by(QuizAttemptQuestionModel.position)).all()
+                        answers = session.scalars(select(QuizAttemptAnswerModel).where(QuizAttemptAnswerModel.attempt_id == frozen_attempt.id)).all()
+                        stored = {str(a.position): a.user_answer for a in answers}
+                        data = [{"position": r.position, "question_id": r.question_id, "grading_key_json": r.grading_key_json} for r in rows]
+                        _results, score, _percentage = grade_assessment(data, stored)
+                        frozen_attempt.total = len(rows)
+                    percentage = round(score / frozen_attempt.total * 100, 1) if frozen_attempt.total else 0.0
+                    frozen_attempt.status = "marked_zero" if action == "mark_zero" else "submitted"
+                    frozen_attempt.score, frozen_attempt.percentage = score, percentage
+                    frozen_attempt.passed = percentage >= (frozen_attempt.passing_grade_percent or 0)
+                    frozen_attempt.counts_toward_limit = True
+                    frozen_attempt.submitted_at = now
+                else:
+                    return None
+                frozen_attempt.resolved_by, frozen_attempt.resolved_at, frozen_attempt.resolution = str(actor_id), now, action
+                session.flush()
+                return self._attempt_public(session, frozen_attempt)
         attempts = self.get_quiz_attempts(quiz_id)
         attempt = next((row for row in attempts if row["id"] == str(attempt_id)), None)
         if not attempt or attempt.get("status") not in {"in_progress", "abandoned"}:
@@ -266,6 +517,7 @@ class PostgresLearningRepository:
             "resolved_by": attempt.resolved_by,
             "resolved_at": attempt.resolved_at.isoformat() if attempt.resolved_at else None,
             "resolution": attempt.resolution,
+            "assessment_snapshot": attempt.assessment_snapshot,
             "answers": [{
                 "question_id": answer.question_id, "question": answer.question_text,
                 "type": answer.question_type, "user_answer": answer.user_answer,

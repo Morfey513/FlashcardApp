@@ -1,0 +1,12 @@
+[
+    {
+        "id": "05c9465b-ee67-4669-af71-10799567ba08",
+        "name": "Class Test",
+        "file": ".pytest-tmp/phase3-full-qa/test_class_only_test_allows_on0/quizzes/05c9465b-ee67-4669-af71-10799567ba08/quiz.json"
+    },
+    {
+        "id": "f7911ec7-b648-4cb8-aa80-91704bc33755",
+        "name": "Public Test",
+        "file": ".pytest-tmp/phase3-full-qa/test_class_only_test_allows_on0/quizzes/f7911ec7-b648-4cb8-aa80-91704bc33755/quiz.json"
+    }
+]

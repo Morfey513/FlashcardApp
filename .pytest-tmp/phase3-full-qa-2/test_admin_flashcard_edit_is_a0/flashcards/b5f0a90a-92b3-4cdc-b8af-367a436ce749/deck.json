@@ -1,0 +1,20 @@
+{
+    "id": "b5f0a90a-92b3-4cdc-b8af-367a436ce749",
+    "name": "Teacher deck",
+    "cards": [
+        {
+            "id": "c1",
+            "front": "Edited by admin",
+            "back": "A"
+        }
+    ],
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "draft",
+        "visibility": "private",
+        "allowed_user_ids": [],
+        "reviewed_by": "admin-1",
+        "reviewed_at": "2026-08-24T04:06:54.207721+00:00",
+        "review_note": ""
+    }
+}

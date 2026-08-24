@@ -1,0 +1,26 @@
+{
+    "id": "967cf16d-b667-47f6-b84a-0731126908a6",
+    "name": "Restricted",
+    "cards": [],
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "banned",
+        "visibility": "class_only",
+        "allowed_user_ids": [
+            "student-1"
+        ],
+        "reviewed_by": "admin",
+        "reviewed_at": "2026-08-24T04:07:11.021445+00:00",
+        "review_note": "",
+        "enrollments": {
+            "student-1": {
+                "enrolled_at": "2026-08-24T04:07:11.020636+00:00"
+            }
+        },
+        "invite": {
+            "code": "REST-CUKF",
+            "created_at": "2026-08-24T04:07:11.016473+00:00",
+            "rotated_at": null
+        }
+    }
+}

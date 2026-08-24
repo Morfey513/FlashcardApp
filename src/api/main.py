@@ -28,6 +28,8 @@ from src.api.schemas import (
     RegistrationRequest,
     RoleUpdateRequest,
     QuizAttemptRequest,
+    AssessmentResponseRequest,
+    AssessmentSubmitRequest,
     TokenResponse,
     UserResponse,
 )
@@ -614,6 +616,61 @@ def create_app(
             quiz_id, user["id"]
         )
 
+    @app.post("/api/v1/quizzes/{quiz_id}/assessments", tags=["assessments"])
+    def start_assessment(quiz_id: str, request: Request, user: Annotated[dict, Depends(current_user)]):
+        metadata = request.app.state.content_repository.get_by_id("quiz", quiz_id)
+        if metadata is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Quiz was not found")
+        if metadata.get("status") != "published" or metadata.get("visibility") != "class_only":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Assessment access is not permitted")
+        available_content(request, user, "quiz", quiz_id)
+        settings = metadata.get("test_settings") or {}
+        from src.logic.test_settings import normalize_test_settings
+        normalized = normalize_test_settings(settings)
+        if normalized["due_at"]:
+            from datetime import datetime, timezone
+            due = datetime.fromisoformat(str(normalized["due_at"]).replace("Z", "+00:00"))
+            if due.tzinfo is None: due = due.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > due:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "Assessment is closed")
+        body = request.app.state.content_body_repository.get_quiz(quiz_id)
+        if body is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Quiz body was not found")
+        result = request.app.state.learning_repository.start_assessment(user["id"], metadata, normalized, body.get("questions", []))
+        if result is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Assessment could not be started")
+        return result
+
+    @app.get("/api/v1/quizzes/{quiz_id}/assessments/{attempt_id}", tags=["assessments"])
+    def get_assessment(quiz_id: str, attempt_id: str, request: Request, user: Annotated[dict, Depends(current_user)]):
+        result = request.app.state.learning_repository.get_assessment(user["id"], attempt_id)
+        if result is None or result["quiz_id"] != quiz_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Assessment was not found")
+        available_content(request, user, "quiz", quiz_id)
+        return result
+
+    @app.put("/api/v1/quizzes/{quiz_id}/assessments/{attempt_id}/responses/{position}", tags=["assessments"])
+    def checkpoint_assessment(quiz_id: str, attempt_id: str, position: int, payload: AssessmentResponseRequest, request: Request, user: Annotated[dict, Depends(current_user)]):
+        current = request.app.state.learning_repository.get_assessment(user["id"], attempt_id)
+        if current is None or current["quiz_id"] != quiz_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Assessment was not found")
+        available_content(request, user, "quiz", quiz_id)
+        result = request.app.state.learning_repository.checkpoint_assessment(user["id"], attempt_id, position, payload.user_answer)
+        if result is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Assessment response could not be saved")
+        return result
+
+    @app.post("/api/v1/quizzes/{quiz_id}/assessments/{attempt_id}/submit", tags=["assessments"])
+    def submit_assessment(quiz_id: str, attempt_id: str, payload: AssessmentSubmitRequest, request: Request, user: Annotated[dict, Depends(current_user)]):
+        current = request.app.state.learning_repository.get_assessment(user["id"], attempt_id)
+        if current is None or current["quiz_id"] != quiz_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Assessment was not found")
+        available_content(request, user, "quiz", quiz_id)
+        result = request.app.state.learning_repository.submit_assessment(user["id"], attempt_id, payload.responses)
+        if result is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Assessment could not be submitted")
+        return result
+
     @app.put("/api/v1/quizzes/{quiz_id}/attempts/{attempt_id}", tags=["learning"])
     def save_quiz_attempt(
         quiz_id: str, attempt_id: str, payload: QuizAttemptRequest,
@@ -628,6 +685,8 @@ def create_app(
                 raise HTTPException(status.HTTP_403_FORBIDDEN, "Attempt belongs to another user")
             if existing["quiz_id"] != quiz_id:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Attempt belongs to another quiz")
+            if existing.get("assessment_snapshot") is not None:
+                raise HTTPException(status.HTTP_409_CONFLICT, "Assessment attempts use the assessment workflow")
         source = payload.model_dump()
         source["user_id"] = user["id"]
         if not request.app.state.learning_repository.import_quiz_attempt(source):
@@ -682,7 +741,15 @@ def create_app(
     ):
         available_content(request, user, kind, content_id)
         if kind == "quiz":
-            body = request.app.state.content_body_repository.get_quiz(content_id)
+            # Learners receive an answer-less source projection.  Authors and
+            # administrators retain the complete editable body.
+            metadata = request.app.state.content_repository.get_by_id("quiz", content_id)
+            can_edit = user["role"] == "admin" or (
+                user["role"] == "teacher" and metadata and metadata.get("owner_id") == user["id"]
+            )
+            body = request.app.state.content_body_repository.get_quiz(
+                content_id, include_answers=can_edit
+            )
         elif kind in {"flashcard", "deck", "flashcard_deck"}:
             body = request.app.state.content_body_repository.get_flashcard_deck(content_id)
         else:

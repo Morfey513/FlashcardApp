@@ -1,0 +1,20 @@
+{
+    "id": "b244445f-eb6d-4559-a9b7-644d65ea453b",
+    "name": "Owned",
+    "cards": [
+        {
+            "id": "c1",
+            "front": "One",
+            "back": "1"
+        }
+    ],
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "draft",
+        "visibility": "private",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": ""
+    }
+}

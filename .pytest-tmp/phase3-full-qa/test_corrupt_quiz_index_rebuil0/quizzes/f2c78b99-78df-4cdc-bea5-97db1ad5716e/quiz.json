@@ -1,0 +1,12 @@
+{
+    "id": "f2c78b99-78df-4cdc-bea5-97db1ad5716e",
+    "name": "Recoverable",
+    "questions": [],
+    "test_settings": {
+        "time_limit_minutes": 0,
+        "passing_grade_percent": 80,
+        "attempt_limit": 1,
+        "due_at": null,
+        "answer_review_policy": "immediate"
+    }
+}

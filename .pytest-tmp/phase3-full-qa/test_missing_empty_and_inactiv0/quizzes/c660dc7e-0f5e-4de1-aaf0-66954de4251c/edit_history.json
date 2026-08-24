@@ -1,0 +1,14 @@
+[
+    {
+        "id": "fba23602-bc33-4795-9a28-020d920f2c37",
+        "changed_by": "teacher-1",
+        "role": "unknown",
+        "timestamp": "2026-08-24T04:04:35.154229+00:00",
+        "action": "created",
+        "change_summary": "Created quiz with 0 questions.",
+        "changed_fields": [
+            "name",
+            "questions"
+        ]
+    }
+]

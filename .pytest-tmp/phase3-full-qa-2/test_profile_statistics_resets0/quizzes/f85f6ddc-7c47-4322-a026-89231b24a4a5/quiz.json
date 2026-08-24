@@ -1,0 +1,19 @@
+{
+    "id": "f85f6ddc-7c47-4322-a026-89231b24a4a5",
+    "name": "Quiz",
+    "questions": [
+        {
+            "id": "question",
+            "type": "short_answer",
+            "question": "Q",
+            "answer": "A"
+        }
+    ],
+    "test_settings": {
+        "time_limit_minutes": 0,
+        "passing_grade_percent": 80,
+        "attempt_limit": 1,
+        "due_at": null,
+        "answer_review_policy": "immediate"
+    }
+}

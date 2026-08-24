@@ -1,0 +1,30 @@
+{
+    "users": [
+        {
+            "id": "1",
+            "role": "teacher",
+            "login": "admin",
+            "password": "pbkdf2_sha256$210000$d8c269ce32bac24278ff8a4efa036cf5$b3fef4dcccc8e70167734dddafcac57afaee0841a8758ee72cbf940aaea3dfe0",
+            "name": "Admin User"
+        },
+        {
+            "id": "2",
+            "role": "student",
+            "login": "student",
+            "password": "pbkdf2_sha256$210000$f45cbf976d413fa51469c2df69b4752d$5a76d684bc290d007536dc631c60a34a4113b124a19b7472f43553edfac5edfb",
+            "name": "Student User"
+        },
+        {
+            "id": "c1e468c0-9b4b-4eef-b35d-3cab9ffc1d12",
+            "role": "student",
+            "status": "active",
+            "login": "personalized",
+            "password": "pbkdf2_sha256$210000$843bce9bec5ef5625eb06d8288dcb1d8$79a9bb11072019f3ccf4ee4f135fcce84ef67d162eba90b544c0af16936c3808",
+            "name": "Personalized",
+            "preferences": {
+                "theme": "dark",
+                "language": "en"
+            }
+        }
+    ]
+}

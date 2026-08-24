@@ -1,0 +1,28 @@
+{
+    "id": "5db97bca-a078-47f5-9f40-49d3d6a16dab",
+    "name": "Expired Test",
+    "questions": [
+        {
+            "id": "q1",
+            "type": "short_answer",
+            "question": "Q",
+            "answer": "A"
+        }
+    ],
+    "test_settings": {
+        "time_limit_minutes": 0,
+        "passing_grade_percent": 80,
+        "attempt_limit": 0,
+        "due_at": "2026-08-24T04:03:35.759573+00:00",
+        "answer_review_policy": "immediate"
+    },
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "published",
+        "visibility": "class_only",
+        "allowed_user_ids": [],
+        "reviewed_by": "admin",
+        "reviewed_at": "2026-08-24T04:04:35.768649+00:00",
+        "review_note": ""
+    }
+}

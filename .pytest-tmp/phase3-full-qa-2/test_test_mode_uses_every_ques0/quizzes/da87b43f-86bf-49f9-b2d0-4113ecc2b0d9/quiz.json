@@ -1,0 +1,172 @@
+{
+    "id": "da87b43f-86bf-49f9-b2d0-4113ecc2b0d9",
+    "name": "Exam",
+    "questions": [
+        {
+            "id": "q0",
+            "type": "short_answer",
+            "question": "Q0",
+            "answer": "0"
+        },
+        {
+            "id": "q1",
+            "type": "short_answer",
+            "question": "Q1",
+            "answer": "1"
+        },
+        {
+            "id": "q2",
+            "type": "short_answer",
+            "question": "Q2",
+            "answer": "2"
+        },
+        {
+            "id": "q3",
+            "type": "short_answer",
+            "question": "Q3",
+            "answer": "3"
+        },
+        {
+            "id": "q4",
+            "type": "short_answer",
+            "question": "Q4",
+            "answer": "4"
+        },
+        {
+            "id": "q5",
+            "type": "short_answer",
+            "question": "Q5",
+            "answer": "5"
+        },
+        {
+            "id": "q6",
+            "type": "short_answer",
+            "question": "Q6",
+            "answer": "6"
+        },
+        {
+            "id": "q7",
+            "type": "short_answer",
+            "question": "Q7",
+            "answer": "7"
+        },
+        {
+            "id": "q8",
+            "type": "short_answer",
+            "question": "Q8",
+            "answer": "8"
+        },
+        {
+            "id": "q9",
+            "type": "short_answer",
+            "question": "Q9",
+            "answer": "9"
+        },
+        {
+            "id": "q10",
+            "type": "short_answer",
+            "question": "Q10",
+            "answer": "10"
+        },
+        {
+            "id": "q11",
+            "type": "short_answer",
+            "question": "Q11",
+            "answer": "11"
+        },
+        {
+            "id": "q12",
+            "type": "short_answer",
+            "question": "Q12",
+            "answer": "12"
+        },
+        {
+            "id": "q13",
+            "type": "short_answer",
+            "question": "Q13",
+            "answer": "13"
+        },
+        {
+            "id": "q14",
+            "type": "short_answer",
+            "question": "Q14",
+            "answer": "14"
+        },
+        {
+            "id": "q15",
+            "type": "short_answer",
+            "question": "Q15",
+            "answer": "15"
+        },
+        {
+            "id": "q16",
+            "type": "short_answer",
+            "question": "Q16",
+            "answer": "16"
+        },
+        {
+            "id": "q17",
+            "type": "short_answer",
+            "question": "Q17",
+            "answer": "17"
+        },
+        {
+            "id": "q18",
+            "type": "short_answer",
+            "question": "Q18",
+            "answer": "18"
+        },
+        {
+            "id": "q19",
+            "type": "short_answer",
+            "question": "Q19",
+            "answer": "19"
+        },
+        {
+            "id": "q20",
+            "type": "short_answer",
+            "question": "Q20",
+            "answer": "20"
+        },
+        {
+            "id": "q21",
+            "type": "short_answer",
+            "question": "Q21",
+            "answer": "21"
+        },
+        {
+            "id": "q22",
+            "type": "short_answer",
+            "question": "Q22",
+            "answer": "22"
+        },
+        {
+            "id": "q23",
+            "type": "short_answer",
+            "question": "Q23",
+            "answer": "23"
+        },
+        {
+            "id": "q24",
+            "type": "short_answer",
+            "question": "Q24",
+            "answer": "24"
+        }
+    ],
+    "test_settings": {
+        "time_limit_minutes": 0,
+        "passing_grade_percent": 80,
+        "attempt_limit": 1,
+        "due_at": null,
+        "answer_review_policy": "immediate"
+    },
+    "moderation": {
+        "owner_id": "legacy",
+        "status": "published",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": "",
+        "visibility": "public"
+    }
+}

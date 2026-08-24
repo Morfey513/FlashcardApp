@@ -1,0 +1,30 @@
+{
+    "id": "c1a39477-e670-4887-b909-933647127ccc",
+    "name": "Math Basics",
+    "cards": [],
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "published",
+        "visibility": "class_only",
+        "allowed_user_ids": [
+            "student-1",
+            "student-2"
+        ],
+        "reviewed_by": "admin",
+        "reviewed_at": "2026-08-24T04:07:10.966854+00:00",
+        "review_note": "",
+        "enrollments": {
+            "student-1": {
+                "enrolled_at": "2026-08-24T04:07:10.968517+00:00"
+            },
+            "student-2": {
+                "enrolled_at": "2026-08-24T04:07:10.972371+00:00"
+            }
+        },
+        "invite": {
+            "code": "MATH-HX42",
+            "created_at": "2026-08-24T04:07:10.970621+00:00",
+            "rotated_at": "2026-08-24T04:07:10.970630+00:00"
+        }
+    }
+}

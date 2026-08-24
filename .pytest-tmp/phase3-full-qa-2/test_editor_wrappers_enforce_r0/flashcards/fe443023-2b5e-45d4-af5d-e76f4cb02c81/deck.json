@@ -1,0 +1,14 @@
+{
+    "id": "fe443023-2b5e-45d4-af5d-e76f4cb02c81",
+    "name": "Teacher deck copy",
+    "cards": [],
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "draft",
+        "visibility": "private",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": ""
+    }
+}

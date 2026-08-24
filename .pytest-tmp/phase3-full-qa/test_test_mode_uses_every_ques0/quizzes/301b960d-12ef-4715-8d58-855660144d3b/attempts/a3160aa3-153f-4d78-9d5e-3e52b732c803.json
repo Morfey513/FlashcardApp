@@ -1,0 +1,424 @@
+{
+    "quiz_id": "301b960d-12ef-4715-8d58-855660144d3b",
+    "quiz_name": "Exam",
+    "user_id": "student-1",
+    "mode": "test",
+    "started_at": "2026-08-24T04:04:35.469051+00:00",
+    "last_activity_at": "2026-08-24T04:04:35.505592+00:00",
+    "score": 25,
+    "total": 25,
+    "percentage": 100.0,
+    "passing_grade_percent": null,
+    "passed": null,
+    "attempt_number": 1,
+    "status": "submitted",
+    "counts_toward_limit": true,
+    "current_question": 25,
+    "answers": [
+        {
+            "question_id": "q15",
+            "question": "Q15",
+            "user_answer": "15",
+            "correct_answer": "15",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.471260+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q3",
+            "question": "Q3",
+            "user_answer": "3",
+            "correct_answer": "3",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.472915+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q5",
+            "question": "Q5",
+            "user_answer": "5",
+            "correct_answer": "5",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.474073+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q16",
+            "question": "Q16",
+            "user_answer": "16",
+            "correct_answer": "16",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.475204+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q21",
+            "question": "Q21",
+            "user_answer": "21",
+            "correct_answer": "21",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.476284+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q6",
+            "question": "Q6",
+            "user_answer": "6",
+            "correct_answer": "6",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.477392+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q20",
+            "question": "Q20",
+            "user_answer": "20",
+            "correct_answer": "20",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.478485+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q13",
+            "question": "Q13",
+            "user_answer": "13",
+            "correct_answer": "13",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.479551+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q0",
+            "question": "Q0",
+            "user_answer": "0",
+            "correct_answer": "0",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.480637+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q19",
+            "question": "Q19",
+            "user_answer": "19",
+            "correct_answer": "19",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.481984+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q7",
+            "question": "Q7",
+            "user_answer": "7",
+            "correct_answer": "7",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.484903+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q4",
+            "question": "Q4",
+            "user_answer": "4",
+            "correct_answer": "4",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.486906+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q17",
+            "question": "Q17",
+            "user_answer": "17",
+            "correct_answer": "17",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.488787+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q23",
+            "question": "Q23",
+            "user_answer": "23",
+            "correct_answer": "23",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.489995+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q11",
+            "question": "Q11",
+            "user_answer": "11",
+            "correct_answer": "11",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.491102+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q9",
+            "question": "Q9",
+            "user_answer": "9",
+            "correct_answer": "9",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.492213+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q2",
+            "question": "Q2",
+            "user_answer": "2",
+            "correct_answer": "2",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.493359+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q14",
+            "question": "Q14",
+            "user_answer": "14",
+            "correct_answer": "14",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.494518+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q8",
+            "question": "Q8",
+            "user_answer": "8",
+            "correct_answer": "8",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.495640+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q1",
+            "question": "Q1",
+            "user_answer": "1",
+            "correct_answer": "1",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.496785+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q10",
+            "question": "Q10",
+            "user_answer": "10",
+            "correct_answer": "10",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.497919+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q24",
+            "question": "Q24",
+            "user_answer": "24",
+            "correct_answer": "24",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.500502+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q22",
+            "question": "Q22",
+            "user_answer": "22",
+            "correct_answer": "22",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.502688+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q12",
+            "question": "Q12",
+            "user_answer": "12",
+            "correct_answer": "12",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.504260+00:00",
+            "response_seconds": 0
+        },
+        {
+            "question_id": "q18",
+            "question": "Q18",
+            "user_answer": "18",
+            "correct_answer": "18",
+            "is_correct": true,
+            "mastered": false,
+            "can_master": false,
+            "stats": {
+                "correct": 0,
+                "wrong": 0,
+                "mastered": false
+            },
+            "answered_at": "2026-08-24T04:04:35.505564+00:00",
+            "response_seconds": 0
+        }
+    ],
+    "id": "a3160aa3-153f-4d78-9d5e-3e52b732c803",
+    "created_at": "2026-08-24T04:04:35.470144+00:00",
+    "answered_count": 25,
+    "submitted_at": "2026-08-24T04:04:35.506982+00:00",
+    "duration_seconds": 0
+}

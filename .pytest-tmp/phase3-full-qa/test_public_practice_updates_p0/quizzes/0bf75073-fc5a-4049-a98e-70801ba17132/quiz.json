@@ -1,0 +1,28 @@
+{
+    "id": "0bf75073-fc5a-4049-a98e-70801ba17132",
+    "name": "Public practice",
+    "questions": [
+        {
+            "id": "q1",
+            "type": "short_answer",
+            "question": "Capital?",
+            "answer": "Ottawa"
+        }
+    ],
+    "test_settings": {
+        "time_limit_minutes": 0,
+        "passing_grade_percent": 80,
+        "attempt_limit": 1,
+        "due_at": null,
+        "answer_review_policy": "immediate"
+    },
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "banned",
+        "visibility": "public",
+        "allowed_user_ids": [],
+        "reviewed_by": "admin",
+        "reviewed_at": "2026-08-24T04:04:35.177419+00:00",
+        "review_note": "Policy violation"
+    }
+}

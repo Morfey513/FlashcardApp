@@ -1,0 +1,14 @@
+{
+    "theme": "dark",
+    "language": "en",
+    "launcher_size": [
+        720,
+        680
+    ],
+    "window_sizes": {
+        "quiz_editor": [
+            880,
+            620
+        ]
+    }
+}

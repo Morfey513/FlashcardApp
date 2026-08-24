@@ -1,0 +1,28 @@
+{
+    "id": "25edfbbe-314f-4b8b-ae11-7b97d0e4dee4",
+    "name": "Owned",
+    "questions": [
+        {
+            "type": "short_answer",
+            "question": "New?",
+            "answer": "B",
+            "id": "c248292e-2cb0-48a5-8a79-5bf77b6a29b7"
+        }
+    ],
+    "test_settings": {
+        "time_limit_minutes": 15,
+        "passing_grade_percent": 75,
+        "attempt_limit": 2,
+        "due_at": null,
+        "answer_review_policy": "immediate"
+    },
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "pending_review",
+        "visibility": "class_only",
+        "allowed_user_ids": [],
+        "reviewed_by": "teacher-1",
+        "reviewed_at": "2026-08-24T04:06:54.339885+00:00",
+        "review_note": ""
+    }
+}

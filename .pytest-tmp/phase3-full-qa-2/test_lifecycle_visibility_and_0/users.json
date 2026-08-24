@@ -1,0 +1,21 @@
+{
+    "users": [
+        {
+            "id": "1",
+            "role": "teacher",
+            "login": "admin",
+            "password": "pbkdf2_sha256$210000$23a655fa2343a428bd1547b610bfe373$bc4df4898f56de0bca377eba55f0f776851a60a005a98f5c7c0fd8955f7b7be3",
+            "name": "Admin User",
+            "status": "banned",
+            "ban_reason": "Repeated guideline violations",
+            "banned_at": "2026-08-24T04:07:15.213498+00:00"
+        },
+        {
+            "id": "2",
+            "role": "student",
+            "login": "student",
+            "password": "pbkdf2_sha256$210000$04548f938479d5c6b966db492839ed04$ff0fd823f8569e4615bbe0fdd9ab55db0c298f2ff4d74cf668ce8637c2d3e9a3",
+            "name": "Student User"
+        }
+    ]
+}

@@ -1,0 +1,25 @@
+{
+    "id": "2e2e9d56-d2ad-469c-aa70-5d2b7ef447fe",
+    "name": "Science",
+    "cards": [
+        {
+            "id": "first",
+            "front": "One",
+            "back": "1"
+        },
+        {
+            "id": "second",
+            "front": "Two",
+            "back": "2"
+        }
+    ],
+    "moderation": {
+        "owner_id": "legacy",
+        "status": "published",
+        "allowed_user_ids": [],
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": "",
+        "visibility": "public"
+    }
+}

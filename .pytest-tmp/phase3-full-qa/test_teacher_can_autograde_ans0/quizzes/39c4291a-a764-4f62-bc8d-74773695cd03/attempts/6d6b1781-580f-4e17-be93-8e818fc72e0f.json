@@ -1,0 +1,38 @@
+{
+    "quiz_id": "39c4291a-a764-4f62-bc8d-74773695cd03",
+    "quiz_name": "Partial",
+    "user_id": "teacher-1",
+    "mode": "test",
+    "started_at": "2026-08-24T04:04:35.851602+00:00",
+    "last_activity_at": "2026-08-24T04:04:35.855585+00:00",
+    "score": 1,
+    "total": 2,
+    "percentage": 50.0,
+    "passing_grade_percent": 50,
+    "passed": true,
+    "attempt_number": 1,
+    "status": "submitted",
+    "counts_toward_limit": true,
+    "current_question": 2,
+    "answers": [
+        {
+            "question_id": "q2",
+            "question": "Q2",
+            "type": "short_answer",
+            "user_answer": "B",
+            "correct_answer": "B",
+            "is_correct": true,
+            "answered_at": "2026-08-24T04:04:35.853666+00:00",
+            "response_seconds": 0
+        }
+    ],
+    "id": "6d6b1781-580f-4e17-be93-8e818fc72e0f",
+    "created_at": "2026-08-24T04:04:35.852563+00:00",
+    "answered_count": 1,
+    "interrupted_at": "2026-08-24T04:04:35.856722+00:00",
+    "last_question": 2,
+    "resolved_at": "2026-08-24T04:04:35.858392+00:00",
+    "resolved_by": "teacher-1",
+    "resolution": "submit_current",
+    "submitted_at": "2026-08-24T04:04:35.858392+00:00"
+}

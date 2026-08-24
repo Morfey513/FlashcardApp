@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -328,6 +329,15 @@ class QuizAttemptModel(Base):
             "'marked_zero', 'refunded')",
             name="ck_quiz_attempts_status",
         ),
+        Index(
+            "uq_quiz_attempts_active_assessment",
+            "user_id",
+            "quiz_id",
+            unique=True,
+            postgresql_where=text(
+                "assessment_snapshot IS NOT NULL AND status IN ('in_progress', 'abandoned')"
+            ),
+        ),
     )
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(
@@ -349,6 +359,7 @@ class QuizAttemptModel(Base):
     passed: Mapped[bool | None] = mapped_column()
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     counts_toward_limit: Mapped[bool] = mapped_column(nullable=False, default=True)
+    assessment_snapshot: Mapped[object | None] = mapped_column(JSON_VALUE)
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
     current_question: Mapped[int | None] = mapped_column(Integer)
     answered_count: Mapped[int | None] = mapped_column(Integer)
@@ -360,6 +371,25 @@ class QuizAttemptModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class QuizAttemptQuestionModel(Base):
+    """Immutable question presentation/grading material for server assessments."""
+
+    __tablename__ = "quiz_attempt_questions"
+    __table_args__ = (
+        UniqueConstraint(
+            "attempt_id", "question_id", name="uq_quiz_attempt_questions_question"
+        ),
+    )
+
+    attempt_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("quiz_attempts.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(Integer, primary_key=True)
+    question_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    presentation_json: Mapped[object] = mapped_column(JSON_VALUE, nullable=False)
+    grading_key_json: Mapped[object] = mapped_column(JSON_VALUE, nullable=False)
 
 
 class QuizAttemptAnswerModel(Base):

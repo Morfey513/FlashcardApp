@@ -1,0 +1,20 @@
+{
+    "quiz_id": "f7911ec7-b648-4cb8-aa80-91704bc33755",
+    "quiz_name": "Public Test",
+    "user_id": "teacher-1",
+    "mode": "test",
+    "started_at": "2026-08-24T04:04:35.598392+00:00",
+    "last_activity_at": "2026-08-24T04:04:35.598392+00:00",
+    "score": 0,
+    "total": 1,
+    "percentage": 0.0,
+    "passing_grade_percent": null,
+    "passed": null,
+    "attempt_number": 2,
+    "status": "in_progress",
+    "counts_toward_limit": false,
+    "current_question": 1,
+    "answers": [],
+    "id": "9405ddfa-3732-4649-aad0-dbec9209f6e8",
+    "created_at": "2026-08-24T04:04:35.600504+00:00"
+}

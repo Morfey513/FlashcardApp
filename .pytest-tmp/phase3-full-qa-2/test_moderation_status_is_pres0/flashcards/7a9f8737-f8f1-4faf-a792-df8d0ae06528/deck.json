@@ -1,0 +1,20 @@
+{
+    "id": "7a9f8737-f8f1-4faf-a792-df8d0ae06528",
+    "name": "Private draft",
+    "cards": [
+        {
+            "id": "card-1",
+            "front": "Q",
+            "back": "A"
+        }
+    ],
+    "moderation": {
+        "owner_id": "teacher-1",
+        "status": "pending_review",
+        "visibility": "class_only",
+        "allowed_user_ids": [],
+        "reviewed_by": "teacher-1",
+        "reviewed_at": "2026-08-24T04:07:14.847689+00:00",
+        "review_note": "Ready to review"
+    }
+}

@@ -1,0 +1,34 @@
+{
+    "users": [
+        {
+            "id": "1",
+            "role": "teacher",
+            "login": "admin",
+            "password": "pbkdf2_sha256$210000$34a59dda0eded22b9d6fabf3226d93bf$6783241278179fabd3826633f9fd37174c5378650413a379e078a9a3eef9ed80",
+            "name": "Admin User"
+        },
+        {
+            "id": "2",
+            "role": "student",
+            "login": "student",
+            "password": "pbkdf2_sha256$210000$8319a89de8bb75f4152781d43a14f91a$55ccb8a9fe247ecc8f4cbcb5c38e2bbd5e49f8b2d8c2d4c75459117862a3a553",
+            "name": "Student User"
+        },
+        {
+            "id": "cef77b58-5ac0-42c1-94a0-cdcfc8cf2e6f",
+            "role": "student",
+            "status": "active",
+            "login": "sized.user",
+            "password": "pbkdf2_sha256$210000$4c592e64af75a6971232f25701fcdace$342bcd4bdece578f798294686e644ad6d3938c30479349733d1ac4ca3a651e6a",
+            "name": "Sized User",
+            "preferences": {
+                "theme": "light",
+                "language": "en",
+                "launcher_size": [
+                    820,
+                    740
+                ]
+            }
+        }
+    ]
+}
