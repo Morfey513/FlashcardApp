@@ -4,6 +4,7 @@ from src.controllers.quiz_controller import QuizController
 from src.storage.flashcard_repository import FlashcardRepository
 from src.storage.moderation_repository import ModerationRepository
 from src.storage.quiz_repository import QuizRepository
+from src.logic.quiz_logic import Quiz
 
 
 def make_repositories(tmp_path):
@@ -153,3 +154,98 @@ def test_mastery_requires_active_quiz_and_normalizes_missing_progress(tmp_path):
     publish(moderation, "Mastery")
     assert controller.load_quiz_by_name("Mastery")
     assert controller.toggle_question_mastery("q1") is False
+
+
+def test_remote_matching_checkpoint_uses_server_mapping_and_never_grades_locally():
+    class Remote:
+        def __init__(self): self.payload = None
+        def checkpoint_assessment(self, *args): self.payload = args[-1]; return {"saved": True}
+        def submit_assessment(self, *args): return None
+
+    repo = Remote()
+    controller = QuizController("teacher", repo, role="teacher")
+    controller.quiz = Quiz([{"id": "m", "type": "matching", "question": "M",
+                             "pairs": [{"prompt": "A", "answer": "1"}, {"prompt": "B", "answer": "2"}]}],
+                           preserve_presentation=True)
+    controller.session_mode = "test"
+    controller.remote_assessment = True
+    controller.current_quiz_info = {"id": "quiz"}
+    controller.active_test_attempt = {"id": "attempt"}
+    controller.remote_position_by_question = {"m": 4}
+    result = controller.submit_answer([{"prompt": "A", "answer": "1"}, {"prompt": "B", "answer": "2"}])
+    assert repo.payload == {"A": "1", "B": "2"}
+    assert result["type"] == "review"
+    assert controller.user_answers["m"]["is_correct"] is None
+
+
+def test_remote_submit_failure_never_falls_back_to_local_grading():
+    class Remote:
+        def submit_assessment(self, *args): return None
+    controller = QuizController("student", Remote())
+    controller.quiz = Quiz([{"id": "q", "type": "short_answer", "question": "Q", "answer": "secret"}], preserve_presentation=True)
+    controller.session_mode = "test"
+    controller.remote_assessment = True
+    controller.current_quiz_path = "quiz"
+    controller.current_quiz_info = {"id": "quiz"}
+    controller.active_test_attempt = {"id": "attempt"}
+    assert controller.finalize_test_attempt() is None
+    assert controller.get_final_results()["status"] == "in_progress"
+
+
+def test_ordering_remote_projection_renders_safe_item_count():
+    controller = QuizController("student", object())
+    controller.quiz = Quiz([{"id": "o", "type": "ordering", "question": "Order",
+                             "items": ["A", "B", "C"]}], preserve_presentation=True)
+    card = controller._get_current_card_data()
+    assert len(card["prompts"]) == 3
+    assert card["dropdown_options"] == ["A", "B", "C"]
+
+
+def test_loading_legacy_session_clears_remote_assessment_state(tmp_path):
+    repo, moderation = make_repositories(tmp_path)
+    assert repo.create_quiz("Legacy", [{"id": "q", "type": "short_answer", "question": "Q", "answer": "A"}], owner_id="teacher")
+    publish(moderation, "Legacy")
+    controller = QuizController("student", repo)
+    controller.remote_assessment = True
+    controller.remote_position_by_question = {"old": 7}
+    controller.active_test_attempt = {"id": "old-attempt"}
+    controller.saved_test_attempt = {"id": "old-result"}
+    assert controller.load_quiz_by_name("Legacy")
+    assert controller.remote_assessment is False
+    assert controller.remote_position_by_question == {}
+    assert controller.active_test_attempt is None
+    assert controller.saved_test_attempt is None
+
+
+def test_remote_assessment_resume_precedes_generic_unresolved_preflight(tmp_path):
+    repo, moderation = make_repositories(tmp_path)
+    assert repo.create_quiz(
+        "Remote resume",
+        [{"id": "q1", "type": "short_answer", "question": "Q", "answer": "A"}],
+        owner_id="teacher",
+    )
+    publish(moderation, "Remote resume", visibility="class_only")
+
+    calls = []
+
+    def resume_assessment(quiz_id):
+        calls.append(quiz_id)
+        return {
+            "id": "existing-attempt",
+            "status": "in_progress",
+            "questions": [{"id": "q1", "position": 0, "type": "short_answer", "question": "Q"}],
+        }
+
+    repo.start_assessment = resume_assessment
+
+    def unexpected_generic_preflight(*_args, **_kwargs):
+        raise AssertionError("generic unresolved-attempt preflight must not run")
+
+    repo.get_test_attempts = unexpected_generic_preflight
+    controller = QuizController("teacher", repo, role="teacher")
+
+    assert controller.load_quiz_by_name("Remote resume", mode="test")
+    expected_quiz_id = next(q["id"] for q in repo.get_all_quizzes() if q["name"] == "Remote resume")
+    assert calls == [expected_quiz_id]
+    assert controller.remote_assessment is True
+    assert controller.active_test_attempt["id"] == "existing-attempt"

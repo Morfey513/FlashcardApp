@@ -1,8 +1,8 @@
 # Testing
 
-The project currently collects **158 pytest cases** and reports **52.7% branch
-coverage** across the complete `src` tree. In a normal local run, 157 pass and
-the explicitly configured live-PostgreSQL smoke test is skipped. Seven tests are parameterized
+The project currently collects **205 pytest cases** and reports **52.7% branch
+coverage** across the complete `src` tree. The final Phase 4 validation run
+passed all 205 tests with no skips. Seven tests are parameterized
 quiz-grading cases, and the role-based launcher test covers four roles through
 parameters. The permission matrix also covers four roles through parameters,
 so the total represents cases rather than 158
@@ -43,10 +43,28 @@ resolution tests. PostgreSQL race tests use the dedicated
 `STUDY_BUDDY_TEST_DATABASE_URL` database and verify serialized checkpoint,
 submit, timeout, and resolution behavior.
 
-Final milestone evidence: **39 focused Phase 3/API tests passed**, **196 tests
+Final Phase 3 evidence: **39 focused Phase 3/API tests passed**, **196 tests
 passed in the full suite with no skips**, and **15 dedicated PostgreSQL
 concurrency tests passed**. The full run emitted four non-blocking Alembic
 deprecation warnings.
+
+## Phase 4: Server-authoritative Class-Only Test Mode
+
+Authenticated desktop API mode now uses the Phase 3 server-authoritative
+assessment workflow for Class-Only Test Mode. The HTTP adapter supports
+assessment start/resume, checkpoint, and submit using the existing assessment
+endpoints. The desktop preserves the server's frozen question, choice,
+matching, and ordering presentation across resume, while the server remains
+authoritative for grading and terminal results. Remote assessments remain
+resumable, including safe matching and ordering input handling.
+
+JSON/offline Test Mode, Practice Mode, and legacy generic attempts remain
+unchanged. API mode requires the FastAPI service to be running.
+
+Final validation: **53 focused Phase 4 tests passed with no skips** and **205
+tests passed in the full suite with no skips**. PostgreSQL validation executed
+successfully against the dedicated `study_buddy_test` database. Four Alembic
+deprecation warnings were non-blocking.
 
 ## Coverage baseline
 

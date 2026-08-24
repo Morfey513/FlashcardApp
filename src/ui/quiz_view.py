@@ -582,22 +582,42 @@ class QuizViewer(QWidget):
         t = self.translator
         self.countdown_timer.stop()
         self.test_timer_label.hide()
-        stats = self.controller.get_final_results()
+        # Remote assessments are graded and finalized by the server.  Finalize
+        # before reading results so the view never renders a locally-derived
+        # score while the authoritative response is still pending.
+        is_remote = bool(getattr(self.controller, "remote_assessment", False))
         attempt = self.controller.finalize_test_attempt(status=attempt_status)
+        stats = self.controller.get_final_results()
+        if is_remote and isinstance(attempt, dict):
+            # Some controllers expose the terminal response directly while
+            # others expose it through get_final_results().  Prefer explicit
+            # server fields without inventing correctness locally.
+            stats = attempt
+            if "results" not in stats and isinstance(stats.get("answers"), list):
+                # The assessment API returns policy-filtered answer rows.  Keep
+                # them as presentation data; do not derive a correct answer
+                # or grade from the local question object.
+                stats = {**stats, "results": stats["answers"]}
 
         score_label = t.t("quiz_view.result_score")
         assessment_result = ""
         if attempt:
-            if attempt["passed"] is None:
-                assessment_result = f"  •  Saved Test  •  {attempt['duration_seconds']}s"
+            passed = attempt.get("passed")
+            if passed is None:
+                assessment_result = "  •  " + str(attempt.get("status", "Saved Test")).replace("_", " ").title()
             else:
-                assessment_result = (
-                    f"  •  {'PASSED' if attempt['passed'] else 'NOT PASSED'}"
-                    f"  •  Required: {attempt['passing_grade_percent']}%"
-                    f"  •  {attempt['duration_seconds']}s"
-                )
+                assessment_result = f"  •  {'PASSED' if passed else 'NOT PASSED'}"
+            if attempt.get("passing_grade_percent") is not None:
+                assessment_result += f"  •  Required: {attempt['passing_grade_percent']}%"
+            if attempt.get("duration_seconds") is not None:
+                assessment_result += f"  •  {attempt['duration_seconds']}s"
+            if attempt.get("status") == "timed_out":
+                assessment_result += "  •  TIMED OUT"
+        score = stats.get("score", 0)
+        total = stats.get("total", 0)
+        percent = stats.get("percentage", stats.get("percent", 0))
         self.result_label.setText(
-            f"{score_label}: {stats['score']}/{stats['total']} ({stats['percent']}%)"
+            f"{score_label}: {score}/{total} ({percent}%)"
             + assessment_result
         )
 
@@ -606,15 +626,21 @@ class QuizViewer(QWidget):
 
         self.clear_layout(self.result_list_layout)
         show_correct_answers = self.controller.can_show_correct_answers()
-        for item in stats["results"]:
+        for item in stats.get("results", []):
             row = QHBoxLayout()
+            question_text = item.get("question", item.get("question_id", ""))
+            user_answer = item.get("user_answer", "")
             details = QLabel(
-                f"<p><strong>{item['question']}</strong></p>"
-                f"<p><i>{label_your_answer}:</i> {item['user_answer']}</p>"
+                f"<p><strong>{question_text}</strong></p>"
+                f"<p><i>{label_your_answer}:</i> {user_answer}</p>"
                 + (
                     f"<p><i>{label_correct}:</i> {item['correct_answer']}</p>"
-                    if show_correct_answers
-                    else "<p><i>Correct-answer review is currently hidden by the teacher.</i></p>"
+                    if show_correct_answers and item.get("correct_answer") is not None
+                    else (
+                        f"<p><i>Correct:</i> {'Yes' if item['is_correct'] else 'No'}</p>"
+                        if show_correct_answers and item.get("is_correct") is not None
+                        else "<p><i>Correct-answer review is currently hidden by the teacher.</i></p>"
+                    )
                 )
                 + (
                     f"<p><i>Attempts:</i> {item['stats']['correct']} correct, "

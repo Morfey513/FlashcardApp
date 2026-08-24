@@ -117,6 +117,34 @@ class HttpQuizRepository(_HttpContentRepositoryBase):
         body = self._body(_content_id(value)) or {}
         return list(body.get("questions") or [])
 
+    def start_assessment(self, quiz_id):
+        status, body = self.user_repository._request(
+            "POST", f"/api/v1/quizzes/{_content_id(quiz_id)}/assessments",
+            {}, authenticated=True,
+        )
+        return dict(body) if status == 200 and isinstance(body, dict) else None
+
+    def get_assessment(self, quiz_id, attempt_id):
+        status, body = self.user_repository._request(
+            "GET", f"/api/v1/quizzes/{_content_id(quiz_id)}/assessments/{attempt_id}",
+            authenticated=True,
+        )
+        return dict(body) if status == 200 and isinstance(body, dict) else None
+
+    def checkpoint_assessment(self, quiz_id, attempt_id, position, answer):
+        status, body = self.user_repository._request(
+            "PUT", f"/api/v1/quizzes/{_content_id(quiz_id)}/assessments/{attempt_id}/responses/{int(position)}",
+            {"user_answer": answer}, authenticated=True,
+        )
+        return dict(body) if status == 200 and isinstance(body, dict) else None
+
+    def submit_assessment(self, quiz_id, attempt_id):
+        status, body = self.user_repository._request(
+            "POST", f"/api/v1/quizzes/{_content_id(quiz_id)}/assessments/{attempt_id}/submit",
+            {}, authenticated=True,
+        )
+        return dict(body) if status == 200 and isinstance(body, dict) else None
+
     def _body(self, content_id):
         return self.bodies.get_quiz(content_id)
 

@@ -23,6 +23,70 @@ from src.storage.http_content_history_repository import HttpContentHistoryReposi
 from src.storage.http_class_repository import HttpClassRepository
 from src.storage.http_learning_repository import HttpLearningRepository
 from src.storage.http_domain_repositories import HttpFlashcardRepository, HttpQuizRepository
+
+
+def test_http_quiz_assessment_adapter_contracts():
+    calls = []
+
+    class User:
+        def _request(self, method, path, payload=None, authenticated=False):
+            calls.append((method, path, payload, authenticated))
+            return 200, {"id": "attempt-1", "quiz_id": "quiz-1", "questions": [], "saved": True}
+
+    repo = HttpQuizRepository(User())
+    assert repo.start_assessment("quiz-1")["id"] == "attempt-1"
+    assert repo.get_assessment("quiz-1", "attempt-1")["id"] == "attempt-1"
+    assert repo.checkpoint_assessment("quiz-1", "attempt-1", 2, "answer")["saved"] is True
+    assert repo.submit_assessment("quiz-1", "attempt-1")["id"] == "attempt-1"
+    assert [call[:2] for call in calls] == [
+        ("POST", "/api/v1/quizzes/quiz-1/assessments"),
+        ("GET", "/api/v1/quizzes/quiz-1/assessments/attempt-1"),
+        ("PUT", "/api/v1/quizzes/quiz-1/assessments/attempt-1/responses/2"),
+        ("POST", "/api/v1/quizzes/quiz-1/assessments/attempt-1/submit"),
+    ]
+    assert all(call[3] for call in calls)
+    assert calls[2][2] == {"user_answer": "answer"}
+
+
+def test_http_quiz_checkpoint_adapter_reaches_fastapi_with_user_answer(identity_api):
+    """Exercise the real adapter/request path, including FastAPI validation."""
+    client, _users, _sessions = identity_api
+    registration = _register(client, "checkpoint.adapter")
+
+    class ContentStub:
+        def get_for_actor(self, _user_id, _role, _scope, kind):
+            assert kind == "quiz"
+            return [{"id": "quiz-1"}]
+
+    class LearningStub:
+        def get_assessment(self, user_id, attempt_id):
+            assert user_id == registration["user"]["id"]
+            return {"id": attempt_id, "quiz_id": "quiz-1", "status": "in_progress"}
+
+        def checkpoint_assessment(self, user_id, attempt_id, position, answer):
+            assert user_id == registration["user"]["id"]
+            assert (attempt_id, position, answer) == ("attempt-1", 2, "answer")
+            return {"saved": True, "user_answer": answer}
+
+    client.app.state.content_repository = ContentStub()
+    client.app.state.learning_repository = LearningStub()
+
+    def requester(method, path, payload, headers):
+        response = client.request(method, path, json=payload, headers=headers)
+        return response.status_code, response.json() if response.content else None
+
+    user_repository = HttpUserRepository(
+        base_url="http://testserver", requester=requester
+    )
+    user_repository._token = registration["access_token"]
+    user_repository._current_user = registration["user"]
+    quiz_repository = HttpQuizRepository(user_repository)
+
+    result = quiz_repository.checkpoint_assessment(
+        "quiz-1", "attempt-1", 2, "answer"
+    )
+
+    assert result == {"saved": True, "user_answer": "answer"}
 from src.storage.repository_factory import create_flashcard_repository, create_quiz_repository
 from src.storage.postgres_class_repository import PostgresClassRepository
 from src.storage.postgres_content_metadata_repository import PostgresContentMetadataRepository

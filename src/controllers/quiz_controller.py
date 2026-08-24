@@ -38,6 +38,9 @@ class QuizController:
         self.active_test_attempt = None
         self.test_deadline = None
         self.question_started_at = None
+        self.remote_assessment = False
+        self.remote_position_by_question = {}
+        self.remote_submit_failed = False
 
     def get_available_quizzes(self):
         """Returns list of names for the UI list widget."""
@@ -128,6 +131,12 @@ class QuizController:
 
     def load_quiz_by_name(self, name, mode="practice"):
         """Initializes a new quiz session."""
+        # A new non-remote session must never inherit server assessment state.
+        # This is deliberately before content selection so mode transitions are clean.
+        self.remote_assessment = False
+        self.remote_position_by_question = {}
+        self.saved_test_attempt = None
+        self.active_test_attempt = None
         quizzes = self._visible_quizzes()
         meta = next((q for q in quizzes if q["name"] == name), None)
 
@@ -136,12 +145,40 @@ class QuizController:
                 logger.warning("Blocked attempt to study banned quiz '%s'", name)
                 return None
             if mode == "test" and meta.get("visibility") == "class_only":
+                start_assessment = getattr(self.repo, "start_assessment", None)
+                if callable(start_assessment):
+                    assessment = start_assessment(meta.get("id") or meta.get("file"))
+                    if not isinstance(assessment, dict) or not assessment.get("id"):
+                        return None
+                    server_questions = list(assessment.get("questions") or [])
+                    if not server_questions:
+                        return None
+                    normalized = []
+                    for row in server_questions:
+                        question = dict(row)
+                        question.pop("answer", None)
+                        question.pop("grading_key_json", None)
+                        if question.get("type") == "matching":
+                            question["pairs"] = [{"prompt": p.get("prompt", ""), "answer": ""} for p in question.get("pairs", [])]
+                        normalized.append(question)
+                    self.current_quiz_info = meta
+                    self.current_quiz_path = meta["file"]
+                    self.session_mode = "test"
+                    self.remote_assessment = True
+                    self.remote_submit_failed = False
+                    self.active_test_attempt = assessment
+                    self.remote_position_by_question = {
+                        str(q.get("id")): int(q.get("position")) for q in server_questions
+                    }
+                    self.quiz = Quiz(normalized, shuffle=False, max_questions=None, preserve_presentation=True)
+                    self.user_answers = {}
+                    self.test_started_at = datetime.now(timezone.utc)
+                    self.question_started_at = self.test_started_at
+                    self.test_deadline = None
+                    return self._get_current_card_data()
                 policy = self.get_test_policy(name)
                 if policy and not policy["can_start"]:
-                    logger.warning(
-                        "Blocked unavailable class-only test '%s' for '%s'",
-                        name, self.user_id,
-                    )
+                    logger.warning("Blocked unavailable class-only test '%s' for '%s'", name, self.user_id)
                     return None
             self.current_quiz_info = meta
             self.current_quiz_path = meta["file"]
@@ -220,6 +257,26 @@ class QuizController:
         current_card = self.quiz.get_current()
         current_id = current_card.id
         current_q = current_card.question
+
+        if self.remote_assessment:
+            position = self.remote_position_by_question.get(str(current_id))
+            if position is None or user_input is None or (isinstance(user_input, str) and not user_input.strip()):
+                return {"type": "standard", "next_card": self._get_current_card_data()}
+            wire_answer = user_input
+            if current_card.type == "matching" and isinstance(user_input, list):
+                wire_answer = {
+                    str(pair.get(MATCH_PROMPT_KEY, "")): pair.get(MATCH_ANSWER_KEY, "")
+                    for pair in user_input if isinstance(pair, dict)
+                }
+            checkpoint = self.repo.checkpoint_assessment(self.current_quiz_info.get("id"), self.active_test_attempt.get("id"), position, wire_answer)
+            if not checkpoint:
+                return {"type": "standard", "next_card": self._get_current_card_data()}
+            self.user_answers[current_id] = {"question_id": current_id, "question": current_q, "type": current_card.type, "user_answer": user_input, "is_correct": None}
+            if self.quiz.index >= len(self.quiz.cards) - 1:
+                return {"type": "review", "next_card": None}
+            self.quiz.next()
+            self.question_started_at = datetime.now(timezone.utc)
+            return {"type": "standard", "next_card": self._get_current_card_data()}
 
         # Block empty saves
         if user_input is None or (isinstance(user_input, str) and not user_input.strip()):
@@ -309,6 +366,16 @@ class QuizController:
 
     def get_final_results(self):
         """Returns score stats and raw answer data for the UI to render."""
+        if self.remote_assessment:
+            if self.saved_test_attempt:
+                return self.saved_test_attempt
+            pending = dict(self.active_test_attempt or {})
+            pending.setdefault("status", "in_progress")
+            pending.setdefault("score", 0)
+            pending.setdefault("total", len(self.quiz.cards) if self.quiz else 0)
+            pending.setdefault("percentage", 0.0)
+            pending.setdefault("results", [])
+            return pending
         correct_count = 0
         results = []
 
@@ -345,6 +412,16 @@ class QuizController:
             return None
         if self.saved_test_attempt is not None:
             return self.saved_test_attempt
+        if self.remote_assessment and self.active_test_attempt:
+            result = self.repo.submit_assessment(self.current_quiz_info.get("id"), self.active_test_attempt.get("id"))
+            if result:
+                self.saved_test_attempt = result
+                self.active_test_attempt = None
+                self.remote_submit_failed = False
+            else:
+                self.remote_submit_failed = True
+            # A failed remote submit is not permission to fall back to local grading.
+            return None
         stats = self.get_final_results()
         submitted_at = datetime.now(timezone.utc)
         started_at = self.test_started_at or submitted_at
@@ -387,6 +464,10 @@ class QuizController:
         """Checkpoint and mark an unfinished Test Mode session as abandoned."""
         if self.session_mode != "test" or not self.active_test_attempt or self.saved_test_attempt:
             return None
+        if self.remote_assessment:
+            # There is deliberately no remote abandonment endpoint. Leave the
+            # server attempt resumable when the desktop session closes.
+            return self.active_test_attempt
         self._checkpoint_test_attempt()
         now = datetime.now(timezone.utc)
         result = self.repo.update_test_attempt(self.current_quiz_path, self.active_test_attempt["id"], {
@@ -418,6 +499,8 @@ class QuizController:
         """Apply the teacher's answer-review policy to a completed Class-Only test."""
         if not self.current_quiz_info or self.current_quiz_info.get("visibility") != "class_only":
             return True
+        if self.remote_assessment and self.saved_test_attempt is not None:
+            return bool(self.saved_test_attempt.get("answers"))
         settings = self.current_quiz_info.get("test_settings", {})
         policy = settings.get("answer_review_policy", "immediate")
         if policy == "immediate":
@@ -553,7 +636,7 @@ class QuizController:
             # MatchingQuestion for ordering
             # card.answer is the correct order
             # card.shuffled_options is the shuffled version
-            data["prompts"] = [t.t("quiz_view.step_label", number=i+1) for i in range(len(card.answer))]
+            data["prompts"] = [t.t("quiz_view.step_label", number=i+1) for i in range(len(card.shuffled_options))]
             data["dropdown_options"] = card.shuffled_options
 
         return data

@@ -133,6 +133,24 @@ tests passed in the full suite with no skips, and 15 dedicated PostgreSQL
 concurrency tests passed. The full run reported four non-blocking Alembic
 deprecation warnings.
 
+## Phase 4: Server-authoritative Class-Only Test Mode
+
+Authenticated desktop API mode now starts, resumes, checkpoints, and submits
+Class-Only Test Mode assessments through the Phase 3 server-authoritative
+workflow. Frozen randomized question, option, matching, and ordering
+presentation is preserved across resume; grading and terminal results remain
+server-owned. Remote assessments are resumable and use safe client-side
+presentation/input handling without exposing grading keys.
+
+JSON/offline Test Mode, Practice Mode, and legacy generic attempts remain
+unchanged. API mode requires the running FastAPI service. No schema or
+migration changes were required for this integration milestone.
+
+Final validation: **53 focused Phase 4 tests passed with no skips**; the full
+suite passed **205 tests with no skips**; PostgreSQL validation executed
+successfully against the dedicated `study_buddy_test` database; and four
+Alembic deprecation warnings were non-blocking.
+
 ## Local setup on Windows
 
 PostgreSQL commands below assume PostgreSQL 17 is installed. Start its Windows
