@@ -23,6 +23,7 @@ def _content_id(value) -> str:
 class _HttpContentRepositoryBase:
     kind = ""
     filename = ""
+    supports_offline_download = True
 
     def __init__(self, user_repository):
         self.user_repository = user_repository

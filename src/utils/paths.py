@@ -1,6 +1,7 @@
 """Shared helpers for paths stored in project JSON data."""
 
 from pathlib import Path
+from urllib.parse import urlparse
 
 from src.config import BASE_DIR
 
@@ -22,5 +23,8 @@ def resolve_stored_path(path_value: str | Path | None) -> Path | None:
     if not path_value:
         return None
 
-    path = Path(path_value)
+    value = str(path_value)
+    if urlparse(value).scheme in {"http", "https"}:
+        return None
+    path = Path(value)
     return path if path.is_absolute() else BASE_DIR / path

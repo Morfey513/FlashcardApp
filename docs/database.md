@@ -151,6 +151,21 @@ suite passed **205 tests with no skips**; PostgreSQL validation executed
 successfully against the dedicated `study_buddy_test` database; and four
 Alembic deprecation warnings were non-blocking.
 
+## Phase 5: Offline Library Foundation
+
+Phase 5 is a local cache/library layer, not a database or synchronization
+change. Downloaded content uses the separate application cache root and
+manifest metadata; it is not written into the JSON authoring stores and does
+not add PostgreSQL tables, models, routes, or migrations. Bundled demos and
+existing JSON content remain independent and survive **Clear Downloaded Data**.
+
+The cache records source, visibility, ownership restrictions, and version
+metadata so public content can remain usable after logout while class/private
+content is locked until its authorized account returns. Cache writes are
+atomic, and incomplete or invalid entries are ignored without replacing a
+previous valid entry. Phase 5 does not implement synchronization, automatic
+refresh, or media downloading.
+
 ## Local setup on Windows
 
 PostgreSQL commands below assume PostgreSQL 17 is installed. Start its Windows

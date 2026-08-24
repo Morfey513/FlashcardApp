@@ -96,7 +96,6 @@ class MainLauncher(QWidget):
         self.controller.continue_as_guest()
         self.update_ui_for_user()
         self._restore_launcher_size()
-        self._connection_status_timer.start()
 
         # Show main panel immediately
         self.stack.setCurrentWidget(self.main_panel)
@@ -323,6 +322,17 @@ class MainLauncher(QWidget):
         self.management_label.setVisible(show_management)
         self.management_divider.setVisible(show_management)
         self.management_row.setVisible(show_management)
+        self._update_connection_monitoring(is_guest)
+
+    def _update_connection_monitoring(self, is_guest: bool):
+        """Only poll server readiness for authenticated API sessions."""
+        if is_guest:
+            self._connection_status_timer.stop()
+            self._apply_connection_status(False)
+            return
+        if not self._connection_status_timer.isActive():
+            self._connection_status_timer.start()
+        self._request_connection_status()
 
     # =========================================================
     # PANELS
@@ -554,6 +564,7 @@ class MainLauncher(QWidget):
             self.settings_panel.theme_changed.connect(self.apply_theme)
             self.settings_panel.language_changed.connect(self.change_language)
             self.settings_panel.clear_all_progress_requested.connect(self.clear_all_learning_progress)
+            self.settings_panel.clear_downloaded_data_requested.connect(self.clear_downloaded_data)
             self.settings_panel.account_requested.connect(self.show_account_settings)
             self.settings_panel.closed.connect(self.hide_settings)
 
@@ -639,6 +650,22 @@ class MainLauncher(QWidget):
         create_flashcard_repository(self.controller.user_repo).clear_user_progress(user_id)
         create_quiz_repository(self.controller.user_repo).clear_user_progress(user_id)
 
+    def clear_downloaded_data(self):
+        """Clear only explicit downloaded library entries."""
+        answer = QMessageBox.question(
+            self,
+            "Clear Downloaded Data",
+            "Delete downloaded offline content? Bundled demos and learning data will remain.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return 0
+        from src.storage.repository_factory import create_content_library
+        removed = create_content_library().clear_downloaded_data()
+        logger.info("Cleared %s downloaded library entries", removed)
+        return removed
+
     def clear_current_user_quiz_progress(self):
         """Confirm and clear only the active user's quiz learning progress."""
         t = self.translator
@@ -691,7 +718,11 @@ class MainLauncher(QWidget):
 
     def _request_connection_status(self):
         """Check connectivity off the GUI thread so an offline API stays responsive."""
-        if self._connection_check_running or not self.isVisible():
+        if (
+            self.controller.get_current_role() == "guest"
+            or self._connection_check_running
+            or not self.isVisible()
+        ):
             return
         self._connection_check_running = True
 

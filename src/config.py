@@ -7,6 +7,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Data storage paths
 DATA_DIR = BASE_DIR / "data"
+CACHE_DIR = BASE_DIR / "cache"
 QUIZ_DIR = DATA_DIR / "quizzes"
 FLASHCARD_DIR = DATA_DIR / "flashcards"
 IMAGE_DIR = DATA_DIR / "images"

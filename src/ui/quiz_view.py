@@ -17,6 +17,7 @@ from src.ui.join_with_code_dialog import (
     configure_join_with_code_button,
     run_join_with_code_flow,
 )
+from src.storage.content_library import ContentLibrary
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ class QuizListRow(QFrame):
 
     selected = pyqtSignal(str)
     moderation_clicked = pyqtSignal(str, str)
+    keep_offline = pyqtSignal()
 
     def __init__(self, quiz, progress_text):
         super().__init__()
@@ -62,7 +64,7 @@ class QuizListRow(QFrame):
         latest_grade.setMinimumWidth(85)
         layout.addWidget(latest_grade)
 
-        status = quiz.get("moderation_status", "published")
+        status = "locked" if quiz.get("locked") else quiz.get("moderation_status", "published")
         displayed_status = quiz.get("visibility", "public") if status == "published" else status
         is_actionable = quiz.get("can_view_moderation_reason", quiz.get("is_owner")) and status in {"rejected", "banned"}
         chip = QPushButton(
@@ -85,6 +87,13 @@ class QuizListRow(QFrame):
             chip.setEnabled(False)
         layout.addWidget(chip)
 
+        if quiz.get("can_download"):
+            offline = QPushButton("Downloaded" if quiz.get("downloaded") else "Keep offline")
+            offline.setObjectName("content_offline_btn")
+            offline.setEnabled(not quiz.get("downloaded"))
+            offline.clicked.connect(self.keep_offline.emit)
+            layout.addWidget(offline)
+
 
     def mousePressEvent(self, event):
         self.selected.emit(self.quiz_name)
@@ -104,6 +113,8 @@ class QuizViewer(QWidget):
         super().__init__()
         self.controller = controller
         self.translator = get_translator()
+        self.library = ContentLibrary(quiz_repository=getattr(controller, "repo", None))
+        self._install_library_repository()
 
         self.setMinimumSize(900, 800)
         self.return_to_review = False
@@ -895,7 +906,24 @@ class QuizViewer(QWidget):
         self.quiz_list.clear()
         self.quiz_rows = {}
         t = self.translator
-        for quiz in self.controller.get_quiz_summaries():
+        quizzes = self.controller.get_quiz_summaries()
+        known_ids = {str(item.get("id") or item.get("file")) for item in quizzes}
+        for cached in self.library.list_downloaded("quiz"):
+            if str(cached["content_id"]) not in known_ids:
+                quizzes.append({
+                    "id": cached["content_id"], "name": cached["name"],
+                    "mastered": 0, "total": 0, "latest_test_percentage": None,
+                    "moderation_status": "locked", "visibility": cached["visibility"],
+                    "locked": not self.library.can_access(cached["manifest"], self.controller.user_id),
+                })
+        for quiz in quizzes:
+            content_id = str(quiz.get("id") or quiz.get("file"))
+            cached = self.library.get_downloaded("quiz", content_id, self.controller.user_id)
+            quiz["downloaded"] = cached is not None
+            quiz["can_download"] = bool(
+                getattr(getattr(self.controller, "repo", None), "supports_offline_download", False)
+                and not quiz.get("locked")
+            )
             row = QuizListRow(quiz, t.t("quiz_view.quiz_progress", mastered=quiz["mastered"], total=quiz["total"]))
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, quiz["name"])
@@ -905,8 +933,37 @@ class QuizViewer(QWidget):
             self.quiz_rows[quiz["name"]] = row
             row.selected.connect(lambda name, current=item: self.select_quiz(name, current))
             row.moderation_clicked.connect(self.show_moderation_reason)
+            row.keep_offline.connect(lambda current=quiz: self.keep_quiz_offline(current))
         if self.quiz_list.count():
             self.quiz_list.setCurrentRow(0)
+
+    def keep_quiz_offline(self, quiz):
+        """Explicitly cache one currently visible remote quiz."""
+        if quiz.get("downloaded") or not hasattr(self.controller.repo, "load_quiz_questions"):
+            return False
+        body = {
+            "id": str(quiz.get("id") or quiz.get("file")),
+            "name": quiz["name"],
+            "questions": self.controller.repo.load_quiz_questions(quiz.get("file")),
+        }
+        self.library.store_download(
+            "quiz", body["id"], body, name=body["name"],
+            visibility=quiz.get("visibility", "public"),
+            owner_id=quiz.get("owner_id"),
+            allowed_account_ids=quiz.get("allowed_user_ids", []),
+            content_version=quiz.get("content_version"),
+        )
+        self.refresh_quiz_list()
+        return True
+
+    def _install_library_repository(self):
+        base = getattr(self.controller, "repo", None)
+        if base is None:
+            return
+        repository = self.library.repository_for("quiz", self.controller.user_id, base)
+        self.controller.repo = repository
+        if hasattr(self.controller, "moderation"):
+            self.controller.moderation.quizzes = repository
 
     def select_quiz(self, quiz_name, item):
         if quiz_name:

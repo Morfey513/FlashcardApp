@@ -230,7 +230,55 @@ StudyBuddy/
 Git history records the implementation sequence and individual refactoring
 changes; this document describes only the architecture that remains relevant.
 
-## Server boundary and planned evolution
+## Architectural evolution
+
+## Phase 5: Offline Library Foundation
+
+Phase 5 adds a local content-library layer without changing the existing JSON
+or HTTP repository contracts. Downloaded entries live under the separate
+`cache/library` root (configured from `CACHE_DIR`); bundled demos and existing
+`data/` JSON authoring/progress content remain application-owned and are never
+copied into that cache.
+
+The library records the content kind, stable content ID, source, visibility,
+ownership restrictions, and version/staleness metadata in a manifest. Bundled
+content is available to guests and authenticated users. Downloaded public
+content remains available after logout. Downloaded class/private content stays
+on disk after logout but is locked for guests and other accounts, then becomes
+available again for the authorized account.
+
+Only repositories that explicitly advertise `supports_offline_download` can
+offer the user an explicit **Keep offline** action; the capability is a source
+boundary, not an authorization decision. The read-through `_LibraryRepository`
+and cache adapter provide cached read access while preserving the existing
+repository's progress and authoring delegation. Cache clearing removes only
+entries whose manifest source is `downloaded`; it does not remove bundled
+demos, JSON indexes, `data/quizzes`, `data/flashcards`, progress, or authoring
+data.
+
+Cache writes use temporary locations followed by atomic replacement. Invalid or
+incomplete manifests/content are not exposed, and a failed write leaves an
+existing valid entry intact. Remote media is represented safely when it is not
+locally available; Phase 5 does not download media, synchronize progress, run
+background downloads, or automatically refresh content.
+
+Phase 5 provides the local offline-library foundation. It does not provide full
+synchronization or automatic content updates.
+
+### Phase 6 roadmap
+
+Future offline work may add content version/update detection, explicit cache
+refresh/update, media download and media-cache management, offline
+availability/error handling, and synchronization rules where required. The
+design of those behaviors is intentionally deferred.
+
+### Phase 5 hardening notes
+
+- `_LibraryRepository` currently delegates methods generically through
+  `__getattr__`; future hardening should explicitly reject writes against
+  cached content.
+- Selector integration currently performs some library/adapter orchestration;
+  future UI work should avoid moving more cache coordination into widgets.
 
 The intended migration keeps the current boundaries:
 

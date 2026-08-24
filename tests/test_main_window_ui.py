@@ -14,6 +14,7 @@ class MainControllerStub:
     def __init__(self):
         self.role = "guest"
         self.name = "Guest"
+        self.online_checks = 0
 
     def get_theme(self):
         return "light"
@@ -41,6 +42,7 @@ class MainControllerStub:
         pass
 
     def is_online(self):
+        self.online_checks += 1
         return False
 
     def get_storage_backend(self):
@@ -95,6 +97,45 @@ def test_launcher_connection_indicator_exposes_readiness(monkeypatch):
     window._apply_connection_status(False)
     assert window.connection_status_label.text() == "● Offline"
     assert window.connection_status_label.property("online") is False
+
+    window.close()
+    app.processEvents()
+
+
+def test_guest_startup_does_not_probe_readiness(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    controller = MainControllerStub()
+    monkeypatch.setattr(main_window_module, "MainController", lambda: controller)
+
+    window = main_window_module.MainLauncher(Path("missing.qss"), Path("missing.qss"))
+    window.show()
+    app.processEvents()
+    window._request_connection_status()
+
+    assert controller.online_checks == 0
+    assert window.connection_status_label.text() == "● Offline"
+    assert window.connection_status_label.property("online") is False
+    assert not window._connection_status_timer.isActive()
+
+    window.close()
+    app.processEvents()
+
+
+def test_authenticated_startup_starts_readiness_monitor(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    controller = MainControllerStub()
+    monkeypatch.setattr(main_window_module, "MainController", lambda: controller)
+
+    window = main_window_module.MainLauncher(Path("missing.qss"), Path("missing.qss"))
+    controller.role = "student"
+    window.update_ui_for_user()
+
+    assert window._connection_status_timer.isActive()
+    assert controller.online_checks == 0  # hidden windows defer the worker
+    window.show()
+    app.processEvents()
+    window._request_connection_status()
+    assert controller.online_checks >= 1
 
     window.close()
     app.processEvents()

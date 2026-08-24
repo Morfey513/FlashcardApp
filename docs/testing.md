@@ -66,6 +66,21 @@ tests passed in the full suite with no skips**. PostgreSQL validation executed
 successfully against the dedicated `study_buddy_test` database. Four Alembic
 deprecation warnings were non-blocking.
 
+## Phase 5: Offline Library Foundation
+
+Focused Phase 5 cache/library and UI tests passed: **14 passed, 0 failed, 0
+skipped**. UI/controller regression passed **34 tests**, and Phase 3/4
+assessment regression passed **30 tests**. Final release validation against the
+dedicated `study_buddy_test` PostgreSQL database reported **221 passed, 0
+failed, 0 skipped** for the full suite. All seven live PostgreSQL tests
+executed and passed; none were accepted as skipped. Controller coverage was
+86.8%, Quiz/Test controller coverage 82.6%, and utility coverage 98.5%.
+
+This milestone validates the local offline-library foundation only. It does not
+validate or implement synchronization, automatic content updates, background
+downloads, or media downloading. The remaining four Alembic deprecation
+warnings are non-blocking.
+
 ## Coverage baseline
 
 The namespace-aware baseline, recorded with Python 3.13, 157 passing cases, and

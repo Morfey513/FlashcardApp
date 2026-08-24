@@ -132,16 +132,18 @@ output remain manual.
 See [docs/testing.md](docs/testing.md) for the complete test inventory and
 testing strategy.
 
-## Future plans
+## Phase 5 and future plans
 
-1. Add multi-device identity, secure remote sessions, account recovery, and
-   synchronized progress.
-2. Add a deliberate offline/download system:
-   bundled demo decks, metadata-first public downloads, explicit class-content
-   acceptance, versioned synchronization that preserves progress, and cached
-   account-owned content that is locked—not deleted—on logout. Public downloads
-   may remain available offline; class/personal cloud content requires the
-   matching signed-in account, with a separate Clear Downloaded Data action.
+Phase 5 provides the local offline-library foundation. It does not provide full
+synchronization or automatic content updates. The implementation keeps bundled
+demo and existing JSON content separate from explicitly downloaded public,
+class, or private content, with account-aware access and a separate
+**Clear Downloaded Data** action.
+
+Phase 6 will define content version/update detection, explicit cache refresh,
+media download and cache management, offline availability/error handling, and
+future synchronization rules where required. These capabilities are not
+implemented yet.
 
 ## Documentation
 
