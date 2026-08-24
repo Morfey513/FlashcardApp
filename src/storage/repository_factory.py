@@ -73,3 +73,14 @@ def create_class_repository(user_repository=None, moderation=None):
         return HttpClassRepository(user_repository)
     from src.storage.invitation_repository import InvitationRepository
     return InvitationRepository(moderation)
+
+
+def create_content_library(*, quiz_repository=None, flashcard_repository=None, cache_root=None):
+    """Create the additive local library facade without changing content repositories."""
+    from src.storage.content_library import ContentLibrary
+
+    return ContentLibrary(
+        quiz_repository=quiz_repository,
+        flashcard_repository=flashcard_repository,
+        cache_root=cache_root,
+    )

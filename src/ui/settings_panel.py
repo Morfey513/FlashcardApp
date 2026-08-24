@@ -21,6 +21,7 @@ class SettingsPanel(QWidget):
     theme_changed = pyqtSignal(str)  # Emits "dark" or "light"
     language_changed = pyqtSignal(str)  # Emits "en" or "fr"
     clear_all_progress_requested = pyqtSignal()
+    clear_downloaded_data_requested = pyqtSignal()
     account_requested = pyqtSignal()
     closed = pyqtSignal()
 
@@ -109,6 +110,11 @@ class SettingsPanel(QWidget):
         self.clear_all_progress_btn.setObjectName("settings_clear_progress_btn")
         self.clear_all_progress_btn.clicked.connect(self.clear_all_progress_requested.emit)
         layout.addWidget(self.clear_all_progress_btn)
+
+        self.clear_downloaded_data_btn = QPushButton("Clear Downloaded Data")
+        self.clear_downloaded_data_btn.setObjectName("settings_clear_downloaded_btn")
+        self.clear_downloaded_data_btn.clicked.connect(self.clear_downloaded_data_requested.emit)
+        layout.addWidget(self.clear_downloaded_data_btn)
 
         self.account_btn = QPushButton()
         self.account_btn.setObjectName("settings_account_btn")

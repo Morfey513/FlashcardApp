@@ -20,6 +20,7 @@ from src.ui.join_with_code_dialog import (
     configure_join_with_code_button,
     run_join_with_code_flow,
 )
+from src.storage.content_library import ContentLibrary
 
 # Initialize Logger
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class DeckListRow(QFrame):
 
     selected = pyqtSignal(str)
     moderation_clicked = pyqtSignal(str, str)
+    keep_offline = pyqtSignal()
 
     def __init__(self, deck, progress_text):
         super().__init__()
@@ -126,7 +128,7 @@ class DeckListRow(QFrame):
         count.setMinimumWidth(110)
         layout.addWidget(count)
 
-        status = deck.get("moderation_status", "published")
+        status = "locked" if deck.get("locked") else deck.get("moderation_status", "published")
         displayed_status = deck.get("visibility", "public") if status == "published" else status
         is_actionable = deck.get("can_view_moderation_reason", deck.get("is_owner")) and status in {"rejected", "banned"}
         chip = QPushButton(
@@ -149,6 +151,13 @@ class DeckListRow(QFrame):
             chip.setEnabled(False)
         layout.addWidget(chip)
 
+        if deck.get("can_download"):
+            offline = QPushButton("Downloaded" if deck.get("downloaded") else "Keep offline")
+            offline.setObjectName("content_offline_btn")
+            offline.setEnabled(not deck.get("downloaded"))
+            offline.clicked.connect(self.keep_offline.emit)
+            layout.addWidget(offline)
+
 
     def mousePressEvent(self, event):
         self.selected.emit(self.deck_name)
@@ -167,6 +176,8 @@ class FlashcardViewer(QWidget):
         super().__init__()
         self.controller = controller
         self.translator = get_translator()
+        self.library = ContentLibrary(flashcard_repository=getattr(controller, "repo", None))
+        self._install_library_repository()
         self.current_card_text = {"front": "", "back": "", "description": ""}
         self.current_hint_text = ""
         self.current_card_audio = {"front": "", "back": "", "hint": "", "description": ""}
@@ -725,7 +736,24 @@ class FlashcardViewer(QWidget):
         self.deck_rows = {}
         t = self.translator
         sec = "flashcard_viewer"
-        for deck in self.controller.get_deck_summaries():
+        decks = self.controller.get_deck_summaries()
+        known_ids = {str(item.get("id") or item.get("file")) for item in decks}
+        for cached in self.library.list_downloaded("flashcard"):
+            if str(cached["content_id"]) not in known_ids:
+                decks.append({
+                    "id": cached["content_id"], "name": cached["name"],
+                    "mastered": 0, "total": 0,
+                    "moderation_status": "locked", "visibility": cached["visibility"],
+                    "locked": not self.library.can_access(cached["manifest"], self.controller.user_id),
+                })
+        for deck in decks:
+            content_id = str(deck.get("id") or deck.get("file"))
+            cached = self.library.get_downloaded("flashcard", content_id, self.controller.user_id)
+            deck["downloaded"] = cached is not None
+            deck["can_download"] = bool(
+                getattr(getattr(self.controller, "repo", None), "supports_offline_download", False)
+                and not deck.get("locked")
+            )
             progress_text = t.t(
                 f"{sec}.deck_progress",
                 mastered=deck["mastered"],
@@ -742,8 +770,37 @@ class FlashcardViewer(QWidget):
             self.deck_rows[deck["name"]] = row
             row.selected.connect(lambda name, current=item: self.select_deck(name, current))
             row.moderation_clicked.connect(self.show_moderation_reason)
+            row.keep_offline.connect(lambda current=deck: self.keep_deck_offline(current))
         if self.deck_list.count():
             self.deck_list.setCurrentRow(0)
+
+    def keep_deck_offline(self, deck):
+        """Explicitly cache one currently visible remote deck."""
+        if deck.get("downloaded") or not hasattr(self.controller.repo, "load_deck_cards"):
+            return False
+        body = {
+            "id": str(deck.get("id") or deck.get("file")),
+            "name": deck["name"],
+            "cards": self.controller.repo.load_deck_cards(deck.get("file")),
+        }
+        self.library.store_download(
+            "flashcard", body["id"], body, name=body["name"],
+            visibility=deck.get("visibility", "public"),
+            owner_id=deck.get("owner_id"),
+            allowed_account_ids=deck.get("allowed_user_ids", []),
+            content_version=deck.get("content_version"),
+        )
+        self.refresh_deck_list()
+        return True
+
+    def _install_library_repository(self):
+        base = getattr(self.controller, "repo", None)
+        if base is None:
+            return
+        repository = self.library.repository_for("flashcard", self.controller.user_id, base)
+        self.controller.repo = repository
+        if hasattr(self.controller, "moderation"):
+            self.controller.moderation.flashcards = repository
 
     def select_deck(self, deck_name, item):
         """Keep custom deck rows selectable by mouse click."""
