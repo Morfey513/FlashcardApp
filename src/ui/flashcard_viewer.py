@@ -152,9 +152,9 @@ class DeckListRow(QFrame):
         layout.addWidget(chip)
 
         if deck.get("can_download"):
-            offline = QPushButton("Downloaded" if deck.get("downloaded") else "Keep offline")
+            offline = QPushButton("Update available" if deck.get("update_available") else ("Downloaded" if deck.get("downloaded") else "Keep offline"))
             offline.setObjectName("content_offline_btn")
-            offline.setEnabled(not deck.get("downloaded"))
+            offline.setEnabled(not deck.get("downloaded") or bool(deck.get("update_available")))
             offline.clicked.connect(self.keep_offline.emit)
             layout.addWidget(offline)
 
@@ -750,6 +750,9 @@ class FlashcardViewer(QWidget):
             content_id = str(deck.get("id") or deck.get("file"))
             cached = self.library.get_downloaded("flashcard", content_id, self.controller.user_id)
             deck["downloaded"] = cached is not None
+            deck["update_available"] = cached is not None and self.library.update_state(
+                "flashcard", content_id, deck.get("content_version"), self.controller.user_id
+            ) == "update_available"
             deck["can_download"] = bool(
                 getattr(getattr(self.controller, "repo", None), "supports_offline_download", False)
                 and not deck.get("locked")
@@ -776,20 +779,27 @@ class FlashcardViewer(QWidget):
 
     def keep_deck_offline(self, deck):
         """Explicitly cache one currently visible remote deck."""
-        if deck.get("downloaded") or not hasattr(self.controller.repo, "load_deck_cards"):
+        if (deck.get("downloaded") and not deck.get("update_available")) or not hasattr(self.controller.repo, "load_deck_cards"):
             return False
         body = {
             "id": str(deck.get("id") or deck.get("file")),
             "name": deck["name"],
             "cards": self.controller.repo.load_deck_cards(deck.get("file")),
         }
-        self.library.store_download(
+        if deck.get("downloaded"):
+            if hasattr(self.controller.repo, "get_deck_body"):
+                body = self.controller.repo.get_deck_body(body["id"]) or {}
+            if body.get("content_version") != deck.get("content_version"):
+                return False
+            self.library.refresh_download("flashcard", body["id"], deck, body, self.controller.user_id)
+        else:
+            self.library.store_download(
             "flashcard", body["id"], body, name=body["name"],
             visibility=deck.get("visibility", "public"),
             owner_id=deck.get("owner_id"),
             allowed_account_ids=deck.get("allowed_user_ids", []),
-            content_version=deck.get("content_version"),
-        )
+                content_version=deck.get("content_version"),
+            )
         self.refresh_deck_list()
         return True
 

@@ -45,7 +45,9 @@ class _HttpContentRepositoryBase:
 
     @staticmethod
     def _entry(item):
-        return {"id": item["id"], "name": item["name"], "file": item["id"]}
+        return {"id": item["id"], "name": item["name"], "file": item["id"],
+                "content_version": item.get("content_version"),
+                "updated_at": item.get("updated_at")}
 
     def get_content_items(self):
         items = []
@@ -67,6 +69,7 @@ class _HttpContentRepositoryBase:
                 "reviewed_at": latest.get("timestamp"),
                 "review_note": latest.get("note", ""),
                 "test_settings": normalize_test_settings(metadata.get("test_settings")),
+                "content_version": metadata.get("content_version"),
             })
         return items
 
@@ -117,6 +120,9 @@ class HttpQuizRepository(_HttpContentRepositoryBase):
     def load_quiz_questions(self, value):
         body = self._body(_content_id(value)) or {}
         return list(body.get("questions") or [])
+
+    def get_quiz_body(self, value):
+        return self._body(_content_id(value))
 
     def start_assessment(self, quiz_id):
         status, body = self.user_repository._request(
@@ -280,6 +286,9 @@ class HttpFlashcardRepository(_HttpContentRepositoryBase):
     def load_deck_cards(self, value):
         body = self._body(_content_id(value)) or {}
         return list(body.get("cards") or [])
+
+    def get_deck_body(self, value):
+        return self._body(_content_id(value))
 
     def _body(self, content_id):
         return self.bodies.get_flashcard_deck(content_id)

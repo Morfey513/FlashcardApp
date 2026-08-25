@@ -419,8 +419,10 @@ def test_content_metadata_api_and_http_adapter_enforce_ownership(identity_api):
     saved = content_http.save("quiz", payload)
     assert saved["owner_id"] == teacher["id"]
     assert saved["status"] == "pending_review"
+    assert saved["content_version"] == 1
     assert content_http.get_all("quiz", "owned")[0]["id"] == "quiz-api-1"
     assert content_http.get_by_id("quiz", "quiz-api-1")["name"] == "Server Quiz"
+    assert content_http.get_by_id("quiz", "quiz-api-1")["content_version"] == 1
 
     other_http = _adapter_for(client)
     other_http.register("Other Teacher", "other.teacher", "password1")
@@ -661,6 +663,7 @@ def test_content_body_api_owner_write_and_authenticated_read(identity_api):
         }],
     })
     assert saved["questions"][0]["answer"] == "4"
+    assert saved["content_version"] == 2
     history = HttpContentHistoryRepository(teacher_http).get_history(
         "quiz", "body-quiz"
     )
@@ -669,7 +672,9 @@ def test_content_body_api_owner_write_and_authenticated_read(identity_api):
     student_http = _adapter_for(client)
     student_http.register("Body Student", "body.student", "password1")
     student_bodies = HttpContentBodyRepository(student_http)
-    assert student_bodies.get_quiz("body-quiz")["questions"][0]["question"] == "2 + 2?"
+    student_body = student_bodies.get_quiz("body-quiz")
+    assert student_body["questions"][0]["question"] == "2 + 2?"
+    assert student_body["content_version"] == 2
     assert student_bodies.save_quiz({
         "id": "body-quiz", "name": "Changed", "questions": []
     }) is None
@@ -709,7 +714,7 @@ def test_desktop_domain_repositories_complete_remote_content_workflow(identity_a
     admin_metadata = HttpContentMetadataRepository(admin_http)
     metadata = admin_metadata.get_by_id("quiz", quiz["file"])
     metadata.update({"status": "published", "review_note": "Approved"})
-    for key in ("kind", "owner_id", "source_owner_id", "owner_resolved", "created_at", "updated_at"):
+    for key in ("kind", "owner_id", "source_owner_id", "owner_resolved", "created_at", "updated_at", "content_version"):
         metadata.pop(key, None)
     assert admin_metadata.save("quiz", metadata)["status"] == "published"
 

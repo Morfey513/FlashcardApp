@@ -93,6 +93,7 @@ class ContentMetadataResponse(BaseModel):
     source_path: str
     created_at: str | None
     updated_at: str | None
+    content_version: int
     test_settings: dict[str, Any] | None = None
 
 

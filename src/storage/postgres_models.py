@@ -155,6 +155,7 @@ class QuizMetadataModel(Base):
     lifecycle: Mapped[str] = mapped_column(String(30), nullable=False)
     visibility: Mapped[str] = mapped_column(String(30), nullable=False)
     source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    content_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     time_limit_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     passing_grade_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=80)
     attempt_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -195,6 +196,7 @@ class FlashcardDeckMetadataModel(Base):
     lifecycle: Mapped[str] = mapped_column(String(30), nullable=False)
     visibility: Mapped[str] = mapped_column(String(30), nullable=False)
     source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    content_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -120,3 +120,43 @@ def test_body_import_requires_existing_metadata_and_valid_ids(tmp_path):
         "id": "deck-1", "cards": [{"front": "No ID", "back": "Answer"}]
     })
     engine.dispose()
+
+
+def test_body_import_increments_parent_content_revision(tmp_path):
+    repository, sessions, engine = _repository(tmp_path)
+    assert repository.import_quiz(_quiz())
+    with sessions() as session:
+        assert session.scalar(select(QuizMetadataModel).where(QuizMetadataModel.id == "quiz-1")).content_version == 2
+    engine.dispose()
+
+
+def test_unchanged_quiz_import_does_not_increment_revision_and_changes_do(tmp_path):
+    repository, sessions, engine = _repository(tmp_path)
+    source = _quiz()
+    assert repository.import_quiz(source)
+    assert repository.import_quiz(source)
+    with sessions() as session:
+        assert session.scalar(select(QuizMetadataModel).where(QuizMetadataModel.id == "quiz-1")).content_version == 2
+    changed = _quiz()
+    changed["questions"][0]["question"] = "Changed"
+    assert repository.import_quiz(changed)
+    with sessions() as session:
+        assert session.scalar(select(QuizMetadataModel).where(QuizMetadataModel.id == "quiz-1")).content_version == 3
+    engine.dispose()
+
+
+def test_flashcard_import_revision_is_idempotent_and_media_reference_sensitive(tmp_path):
+    repository, sessions, engine = _repository(tmp_path)
+    source = {"id": "deck-1", "name": "Deck", "cards": [{
+        "id": "card-1", "front": "Q", "back": "A", "image": "one.png",
+        "audio": {"front": "one.mp3"},
+    }]}
+    assert repository.import_flashcard_deck(source)
+    assert repository.import_flashcard_deck(source)
+    with sessions() as session:
+        assert session.scalar(select(FlashcardDeckMetadataModel).where(FlashcardDeckMetadataModel.id == "deck-1")).content_version == 2
+    changed = {**source, "cards": [{**source["cards"][0], "image": "two.png"}]}
+    assert repository.import_flashcard_deck(changed)
+    with sessions() as session:
+        assert session.scalar(select(FlashcardDeckMetadataModel).where(FlashcardDeckMetadataModel.id == "deck-1")).content_version == 3
+    engine.dispose()

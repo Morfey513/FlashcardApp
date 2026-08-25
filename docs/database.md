@@ -163,8 +163,19 @@ The cache records source, visibility, ownership restrictions, and version
 metadata so public content can remain usable after logout while class/private
 content is locked until its authorized account returns. Cache writes are
 atomic, and incomplete or invalid entries are ignored without replacing a
-previous valid entry. Phase 5 does not implement synchronization, automatic
-refresh, or media downloading.
+previous valid entry. Phase 5 does not implement media downloading or
+background synchronization.
+
+## Phase 6A: Explicit content refresh
+
+Phase 6A adds a server-authoritative `content_version` column to quiz and
+flashcard-deck metadata. Metadata and body mutations advance the revision in
+the same PostgreSQL transaction when effective content or media references
+change. The authenticated metadata and body APIs expose the revision so the
+client can detect newer downloaded content and perform an explicit refresh.
+The client rejects metadata/body revision mismatches and retains the previous
+valid cache on failed or inconsistent replacement. Media binaries and learning
+state remain outside this phase.
 
 ## Local setup on Windows
 

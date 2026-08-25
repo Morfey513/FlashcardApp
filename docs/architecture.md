@@ -258,19 +258,30 @@ data.
 
 Cache writes use temporary locations followed by atomic replacement. Invalid or
 incomplete manifests/content are not exposed, and a failed write leaves an
-existing valid entry intact. Remote media is represented safely when it is not
-locally available; Phase 5 does not download media, synchronize progress, run
-background downloads, or automatically refresh content.
+existing valid entry intact. Phase 6A adds server-authoritative content
+revisions, explicit update detection, and user-triggered refreshes. Metadata
+and body revisions must match before a refreshed package replaces the current
+cache. Remote media is still represented safely when it is not locally
+available; media downloading, progress synchronization, and background
+downloads remain deferred.
 
 Phase 5 provides the local offline-library foundation. It does not provide full
 synchronization or automatic content updates.
 
-### Phase 6 roadmap
+### Phase 6A: Explicit Content Refresh
 
-Future offline work may add content version/update detection, explicit cache
-refresh/update, media download and media-cache management, offline
-availability/error handling, and synchronization rules where required. The
-design of those behaviors is intentionally deferred.
+Phase 6A stores a server-authoritative `content_version` on quiz and deck
+metadata. Metadata and body APIs expose the revision, and downloaded entries
+show an update-available state when the server revision is newer. Updates are
+explicitly user-triggered and use atomic cache replacement; a failed or
+inconsistent refresh preserves the previous valid package. Body imports are
+revision-idempotent and advance the revision transactionally when effective
+content or media references change.
+
+Media downloading, media-cache management, cache-size limits, background
+synchronization, progress/assessment synchronization, offline authoring,
+bidirectional synchronization, and conflict resolution remain future Phase 6B
+or later work.
 
 ### Phase 5 hardening notes
 
