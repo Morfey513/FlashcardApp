@@ -736,7 +736,8 @@ class FlashcardViewer(QWidget):
         self.deck_rows = {}
         t = self.translator
         sec = "flashcard_viewer"
-        decks = self.controller.get_deck_summaries()
+        list_loader = getattr(self.controller, "get_deck_list_items", None)
+        decks = list_loader() if callable(list_loader) else self.controller.get_deck_summaries()
         known_ids = {str(item.get("id") or item.get("file")) for item in decks}
         for cached in self.library.list_downloaded("flashcard"):
             if str(cached["content_id"]) not in known_ids:

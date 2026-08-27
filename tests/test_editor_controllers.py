@@ -4,6 +4,55 @@ from src.storage.flashcard_repository import FlashcardRepository
 from src.storage.quiz_repository import QuizRepository
 
 
+def test_quiz_editor_preserves_structured_http_delete_outcome():
+    class RepoStub:
+        def get_owned_quizzes(self):
+            return [{"id": "quiz-1", "name": "Owned", "file": "quiz-1"}]
+
+        def delete_quiz_result(self, name):
+            assert name == "Owned"
+            return {"status": "forbidden", "status_code": 403}
+
+    class ModerationStub:
+        def get_all_content(self, kind=None):
+            assert kind == "quiz"
+            return [{"kind": "quiz", "name": "Owned", "file": "quiz-1",
+                     "owner_id": "teacher-1", "status": "draft", "visibility": "private"}]
+
+    controller = QuizEditorController(
+        "teacher-1", "teacher", repo=RepoStub(), moderation=ModerationStub(),
+    )
+
+    assert controller.delete_quiz_result("Owned") == {
+        "status": "forbidden", "status_code": 403,
+    }
+    assert controller.delete_quiz("Owned") is False
+
+
+def test_flashcard_editor_preserves_structured_http_delete_outcome():
+    class RepoStub:
+        def get_owned_decks(self):
+            return [{"id": "deck-1", "name": "Owned", "file": "deck-1"}]
+
+        def delete_deck_result(self, name):
+            assert name == "Owned"
+            return {"status": "forbidden", "status_code": 403}
+
+    class ModerationStub:
+        def get_all_content(self, kind=None):
+            assert kind == "flashcard"
+            return [{"kind": "flashcard", "name": "Owned", "file": "deck-1",
+                     "owner_id": "teacher-1", "status": "draft", "visibility": "private"}]
+
+    controller = FlashcardEditorController(
+        "teacher-1", "teacher", repo=RepoStub(), moderation=ModerationStub(),
+    )
+    assert controller.delete_deck_result("Owned") == {
+        "status": "forbidden", "status_code": 403,
+    }
+    assert controller.delete_deck("Owned") is False
+
+
 def make_flashcard_controller(repo, owner_id="teacher-1", role="teacher"):
     return FlashcardEditorController(owner_id, role, repo=repo)
 
@@ -69,6 +118,24 @@ def test_flashcard_editor_saves_visibility_ids_and_prunes_progress(tmp_path, mon
     assert controller.save_deck(cards, "private") is False
 
 
+def test_flashcard_editor_does_not_report_success_when_repository_or_moderation_fails(
+    tmp_path, monkeypatch,
+):
+    repo = FlashcardRepository(tmp_path / "flashcards", tmp_path / "decks.json")
+    assert repo.create_deck("Owned", owner_id="teacher-1")
+    controller = make_flashcard_controller(repo)
+    assert controller.load_deck("Owned")
+    controller.has_unsaved_changes = True
+    monkeypatch.setattr(repo, "save_deck_content", lambda *_args, **_kwargs: False)
+    assert controller.save_deck([], "private") is False
+    assert controller.has_unsaved_changes is True
+
+    monkeypatch.setattr(repo, "save_deck_content", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(controller.moderation, "set_content_status", lambda *_args, **_kwargs: False)
+    assert controller.save_deck([], "private") is False
+    assert controller.has_unsaved_changes is True
+
+
 def test_quiz_editor_enforces_ownership_and_manages_questions(tmp_path):
     repo = QuizRepository(tmp_path / "quizzes", tmp_path / "quizzes.json")
     question = {"id": "q1", "type": "short_answer", "question": "One?", "answer": "1"}
@@ -90,6 +157,48 @@ def test_quiz_editor_enforces_ownership_and_manages_questions(tmp_path):
 
     admin = make_quiz_controller(repo, owner_id="admin-1", role="admin")
     assert set(admin.get_quiz_names()) == {"Owned", "Other"}
+
+
+def test_quiz_copy_uses_new_content_and_question_ids_without_changing_original(tmp_path):
+    repo = QuizRepository(tmp_path / "quizzes", tmp_path / "quizzes.json")
+    original_question = {
+        "id": "q1", "type": "matching", "question": "Match",
+        "pairs": [{"prompt": "Spain", "answer": "Madrid"}],
+    }
+    assert repo.create_quiz("Original", [original_question], owner_id="teacher-1")
+    controller = make_quiz_controller(repo)
+
+    assert controller.copy_quiz("Original", "Copy") is True
+
+    rows = repo.get_all_quizzes()
+    assert [row["name"] for row in rows].count("Copy") == 1
+    original = next(row for row in rows if row["name"] == "Original")
+    copied = next(row for row in rows if row["name"] == "Copy")
+    assert original["id"] != copied["id"]
+    original_body = repo.load_quiz_questions(original["file"])
+    copied_body = repo.load_quiz_questions(copied["file"])
+    assert original_body[0]["id"] == "q1"
+    assert copied_body[0]["id"] != "q1"
+    assert original_body[0]["pairs"] == copied_body[0]["pairs"]
+
+
+def test_flashcard_copy_uses_new_content_and_card_ids_without_changing_original(tmp_path):
+    repo = FlashcardRepository(tmp_path / "flashcards", tmp_path / "decks.json")
+    assert repo.create_deck(
+        "Original", [{"id": "c1", "front": "Front", "back": "Back"}],
+        owner_id="teacher-1",
+    )
+    controller = make_flashcard_controller(repo)
+
+    assert controller.copy_deck("Original", "Copy") is True
+
+    rows = repo.get_all_decks()
+    assert [row["name"] for row in rows].count("Copy") == 1
+    original = next(row for row in rows if row["name"] == "Original")
+    copied = next(row for row in rows if row["name"] == "Copy")
+    assert original["id"] != copied["id"]
+    assert repo.load_deck_cards(original["file"])[0]["id"] == "c1"
+    assert repo.load_deck_cards(copied["file"])[0]["id"] != "c1"
 
 
 def test_quiz_editor_saves_assessment_settings_and_handles_repo_failure(tmp_path, monkeypatch):
@@ -122,6 +231,24 @@ def test_quiz_editor_saves_assessment_settings_and_handles_repo_failure(tmp_path
 
     monkeypatch.setattr(repo, "save_quiz_content", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")))
     assert controller.save_quiz(questions, [questions[0]["id"]], "private") is False
+
+
+def test_quiz_editor_does_not_report_success_when_repository_or_moderation_fails(
+    tmp_path, monkeypatch,
+):
+    repo = QuizRepository(tmp_path / "quizzes", tmp_path / "quizzes.json")
+    assert repo.create_quiz("Owned", owner_id="teacher-1")
+    controller = make_quiz_controller(repo)
+    assert controller.load_quiz("Owned")
+    controller.has_unsaved_changes = True
+    monkeypatch.setattr(repo, "save_quiz_content", lambda *_args, **_kwargs: False)
+    assert controller.save_quiz([], [], "private") is False
+    assert controller.has_unsaved_changes is True
+
+    monkeypatch.setattr(repo, "save_quiz_content", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(controller.moderation, "set_content_status", lambda *_args, **_kwargs: False)
+    assert controller.save_quiz([], [], "private") is False
+    assert controller.has_unsaved_changes is True
 
 
 def test_editor_wrappers_enforce_roles_and_ownership(tmp_path):

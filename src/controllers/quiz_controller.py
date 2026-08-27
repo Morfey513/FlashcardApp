@@ -41,6 +41,8 @@ class QuizController:
         self.remote_assessment = False
         self.remote_position_by_question = {}
         self.remote_submit_failed = False
+        self._policy_cache = {}
+        self._prepared_quiz_start = None
 
     def get_available_quizzes(self):
         """Returns list of names for the UI list widget."""
@@ -60,19 +62,45 @@ class QuizController:
             })
         return summaries
 
+    def get_quiz_list_items(self):
+        """Return metadata-only rows for the quiz selector."""
+        return [
+            {**quiz, "mastered": 0, "total": 0, "latest_test_percentage": None}
+            for quiz in self._visible_quizzes()
+        ]
+
     def get_quiz_summary(self, name):
         return next((quiz for quiz in self.get_quiz_summaries() if quiz["name"] == name), None)
 
     def is_quiz_complete(self, name):
-        summary = self.get_quiz_summary(name)
-        return bool(summary and summary["total"] > 0 and summary["mastered"] == summary["total"])
+        prepared = self._prepare_quiz_start(name)
+        self._prepared_quiz_start = prepared
+        if not prepared:
+            return False
+        questions = prepared["questions"]
+        progress = prepared["progress"]
+        return bool(
+            questions
+            and all(progress.get(question.get("id"), {}).get("mastered", False)
+                    for question in questions)
+        )
 
     def get_test_policy(self, name):
-        summary = self.get_quiz_summary(name)
-        if not summary:
+        metadata = next(
+            (quiz for quiz in self._visible_quizzes() if quiz["name"] == name),
+            None,
+        )
+        if not metadata:
             return None
+        return self.get_test_policy_for_summary(metadata)
+
+    def get_test_policy_for_summary(self, summary):
+        settings = summary.get("test_settings", {}) if summary.get("visibility") == "class_only" else {}
+        cache_key = (str(summary.get("file")), repr(settings))
+        cache_enabled = hasattr(self.repo, "user_repository")
+        if cache_enabled and cache_key in self._policy_cache:
+            return dict(self._policy_cache[cache_key])
         class_only = summary.get("visibility") == "class_only"
-        settings = summary.get("test_settings", {}) if class_only else {}
         attempts = self.repo.get_test_attempts(summary["file"], self.user_id) if class_only else []
         charged_attempts = [
             attempt for attempt in attempts
@@ -88,7 +116,7 @@ class QuizController:
         due_datetime = self._parse_due_at(due_at)
         due_expired = bool(due_datetime and datetime.now(timezone.utc) > due_datetime)
         attempt_limit_reached = class_only and attempt_limit > 0 and len(charged_attempts) >= attempt_limit
-        return {
+        policy = {
             "class_only": class_only,
             "single_attempt": class_only and attempt_limit == 1,
             "completed": attempt_limit_reached,
@@ -105,12 +133,20 @@ class QuizController:
             "time_limit_minutes": int(settings.get("time_limit_minutes", 0) or 0),
             "answer_review_policy": settings.get("answer_review_policy", "immediate"),
         }
+        if cache_enabled:
+            self._policy_cache = {cache_key: policy}
+        return dict(policy)
+
+    def invalidate_policy_cache(self):
+        self._policy_cache = {}
 
     def can_start_test(self, name):
         policy = self.get_test_policy(name)
         return bool(policy and policy["can_start"])
 
     def reset_quiz_progress(self, name):
+        self.invalidate_policy_cache()
+        self._prepared_quiz_start = None
         quiz = next((item for item in self._visible_quizzes() if item["name"] == name), None)
         if not quiz:
             logger.warning("Cannot reset progress: quiz '%s' was not found", name)
@@ -120,6 +156,7 @@ class QuizController:
         return reset
 
     def clear_all_progress(self):
+        self._prepared_quiz_start = None
         removed = self.repo.clear_user_progress(self.user_id)
         logger.info("All quiz progress cleared for user '%s' (%d quizzes)", self.user_id, removed)
         return removed
@@ -137,8 +174,14 @@ class QuizController:
         self.remote_position_by_question = {}
         self.saved_test_attempt = None
         self.active_test_attempt = None
-        quizzes = self._visible_quizzes()
-        meta = next((q for q in quizzes if q["name"] == name), None)
+        prepared = self._prepared_quiz_start if mode == "practice" else None
+        self._prepared_quiz_start = None
+        if prepared and prepared["name"] == name:
+            meta = prepared["meta"]
+        else:
+            prepared = None
+            quizzes = self._visible_quizzes()
+            meta = next((q for q in quizzes if q["name"] == name), None)
 
         if meta:
             if meta.get("moderation_status") == "banned":
@@ -182,13 +225,19 @@ class QuizController:
                     return None
             self.current_quiz_info = meta
             self.current_quiz_path = meta["file"]
-            questions = self.repo.load_quiz_questions(meta["file"])
+            questions = (
+                prepared["questions"] if prepared is not None
+                else self.repo.load_quiz_questions(meta["file"])
+            )
 
             if not questions:
                 logger.error(f"No questions loaded for quiz: {name}")
                 return None
 
-            self.quiz_progress = self.repo.get_quiz_progress(self.current_quiz_path, self.user_id)
+            self.quiz_progress = (
+                prepared["progress"] if prepared is not None
+                else self.repo.get_quiz_progress(self.current_quiz_path, self.user_id)
+            )
             self.session_mode = "test" if mode == "test" else "practice"
             session_questions = questions if self.session_mode == "test" else [
                 question for question in questions
@@ -417,6 +466,7 @@ class QuizController:
             if result:
                 self.saved_test_attempt = result
                 self.active_test_attempt = None
+                self.invalidate_policy_cache()
                 self.remote_submit_failed = False
             else:
                 self.remote_submit_failed = True
@@ -458,6 +508,7 @@ class QuizController:
         else:
             self.saved_test_attempt = self.repo.save_test_attempt(self.current_quiz_path, attempt)
         self.active_test_attempt = None
+        self.invalidate_policy_cache()
         return self.saved_test_attempt
 
     def abandon_test_attempt(self):
@@ -477,6 +528,7 @@ class QuizController:
             "counts_toward_limit": False,
         })
         self.active_test_attempt = None
+        self.invalidate_policy_cache()
         return result
 
     def _checkpoint_test_attempt(self):
@@ -586,7 +638,7 @@ class QuizController:
         content = {
             item["file"]: item
             for item in self.moderation.get_content_for_selector(
-                self.user_id, self.role
+                self.user_id, self.role, kind="quiz"
             )
             if item["kind"] == "quiz"
         }
@@ -606,6 +658,17 @@ class QuizController:
             for quiz in self.repo.get_all_quizzes()
             if quiz["file"] in content
         ]
+
+    def _prepare_quiz_start(self, name):
+        """Load the selected practice package once for completion and session start."""
+        meta = next((item for item in self._visible_quizzes() if item["name"] == name), None)
+        if not meta or meta.get("moderation_status") == "banned":
+            return None
+        questions = self.repo.load_quiz_questions(meta["file"])
+        progress = self.repo.get_quiz_progress(meta["file"], self.user_id)
+        return {
+            "name": name, "meta": meta, "questions": questions, "progress": progress,
+        }
 
     def _get_current_card_data(self):
         """Extract card data for UI rendering."""

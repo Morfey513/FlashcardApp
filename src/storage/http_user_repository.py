@@ -65,6 +65,8 @@ class HttpUserRepository:
     def _accept_session(self, body: dict) -> Dict:
         self._token = str(body["access_token"])
         self._current_user = dict(body["user"])
+        self._content_metadata_cache = {}
+        self._owned_classes_cache = {}
         return dict(self._current_user)
 
     def authenticate(self, login: str, password: str) -> Optional[Dict]:
@@ -200,10 +202,14 @@ class HttpUserRepository:
     def logout(self) -> bool:
         if not self._token:
             self._current_user = None
+            self._content_metadata_cache = {}
+            self._owned_classes_cache = {}
             return True
         code, _body = self._request("POST", "/api/v1/auth/logout", authenticated=True)
         self._token = None
         self._current_user = None
+        self._content_metadata_cache = {}
+        self._owned_classes_cache = {}
         return code == 204
 
     def _owns_current_account(self, user_id: str) -> bool:

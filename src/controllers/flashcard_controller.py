@@ -29,6 +29,7 @@ class FlashcardController:
         self.role = role
         self.session = None
         self.current_deck_id = ""
+        self._prepared_deck_start = None
         self.translator = get_translator()
         logger.info("FlashcardController initialized")
 
@@ -54,6 +55,13 @@ class FlashcardController:
             })
         return summaries
 
+    def get_deck_list_items(self):
+        """Return metadata-only rows for the deck selector."""
+        return [
+            {**deck, "mastered": 0, "total": 0}
+            for deck in self._visible_decks()
+        ]
+
     def get_deck_summary(self, deck_name):
         """Return the current user's progress summary for a named deck."""
         return next(
@@ -63,15 +71,18 @@ class FlashcardController:
 
     def is_deck_complete(self, deck_name):
         """A non-empty deck is complete when all of its cards are mastered."""
-        summary = self.get_deck_summary(deck_name)
+        prepared = self._prepare_deck_start(deck_name)
+        self._prepared_deck_start = prepared
         return bool(
-            summary
-            and summary["total"] > 0
-            and summary["mastered"] == summary["total"]
+            prepared
+            and prepared["cards"]
+            and all(prepared["progress"].get(card.get("id"), {}).get("mastered", False)
+                    for card in prepared["cards"])
         )
 
     def reset_deck_progress(self, deck_name):
         """Reset only the current user's saved progress for the selected deck."""
+        self._prepared_deck_start = None
         deck = next(
             (item for item in self._visible_decks() if item["name"] == deck_name),
             None,
@@ -88,12 +99,14 @@ class FlashcardController:
         if self.user_id != "guest":
             logger.warning("Guest-progress clear ignored for authenticated user '%s'", self.user_id)
             return 0
+        self._prepared_deck_start = None
         removed = self.repo.clear_user_progress("guest")
         logger.info("Guest deck progress cleared from %d decks", removed)
         return removed
 
     def clear_all_progress(self):
         """Clear every saved deck progress file belonging to this controller's user."""
+        self._prepared_deck_start = None
         removed = self.repo.clear_user_progress(self.user_id)
         logger.info("All deck progress cleared for user '%s' (%d decks)", self.user_id, removed)
         return removed
@@ -121,8 +134,14 @@ class FlashcardController:
 
         try:
             # Get deck info from repository
-            decks = self._visible_decks()
-            deck_info = next((d for d in decks if d["name"] == deck_name), None)
+            prepared = self._prepared_deck_start
+            self._prepared_deck_start = None
+            if prepared and prepared["name"] == deck_name:
+                deck_info = prepared["meta"]
+            else:
+                prepared = None
+                decks = self._visible_decks()
+                deck_info = next((d for d in decks if d["name"] == deck_name), None)
 
             if not deck_info:
                 logger.error(f"Deck not found: {deck_name}")
@@ -135,8 +154,14 @@ class FlashcardController:
             self.current_deck_id = deck_info["file"]
 
             # Load cards and progress
-            cards = self.repo.load_deck_cards(self.current_deck_id)
-            progress = self.repo.get_progress(self.current_deck_id, self.user_id)
+            cards = (
+                prepared["cards"] if prepared is not None
+                else self.repo.load_deck_cards(self.current_deck_id)
+            )
+            progress = (
+                prepared["progress"] if prepared is not None
+                else self.repo.get_progress(self.current_deck_id, self.user_id)
+            )
 
             # Create session
             self.session = FlashcardSession(cards, progress)
@@ -233,7 +258,7 @@ class FlashcardController:
         content = {
             item["file"]: item
             for item in self.moderation.get_content_for_selector(
-                self.user_id, self.role
+                self.user_id, self.role, kind="flashcard"
             )
             if item["kind"] == "flashcard"
         }
@@ -252,6 +277,15 @@ class FlashcardController:
             for deck in self.repo.get_all_decks()
             if deck["file"] in content
         ]
+
+    def _prepare_deck_start(self, deck_name):
+        """Load the selected deck once for completion and session start."""
+        meta = next((item for item in self._visible_decks() if item["name"] == deck_name), None)
+        if not meta or meta.get("moderation_status") == "banned":
+            return None
+        cards = self.repo.load_deck_cards(meta["file"])
+        progress = self.repo.get_progress(meta["file"], self.user_id)
+        return {"name": deck_name, "meta": meta, "cards": cards, "progress": progress}
 
     def get_progress_string(self):
         """Get progress text for UI label."""

@@ -556,8 +556,8 @@ class QuizEditor(QWidget):
             t.t(f"{sec}.dialog_create_label")
         )
         if ok and name:
-            self.controller.create_new_quiz(name)
-            self.refresh_quiz_list()
+            if self.controller.create_new_quiz(name):
+                self.refresh_quiz_list()
 
     def edit_selected_quiz(self):
         item = self.editor_quiz_list.currentItem()
@@ -716,8 +716,20 @@ class QuizEditor(QWidget):
             t.t(f"{sec}.dialog_delete_quiz_text", name=name)
         )
         if confirm == QMessageBox.StandardButton.Yes:
-            self.controller.delete_quiz(name)
-            self.refresh_quiz_list()
+            delete_result = getattr(self.controller, "delete_quiz_result", None)
+            result = (
+                delete_result(name) if callable(delete_result)
+                else {"status": "deleted" if self.controller.delete_quiz(name) else "failed"}
+            )
+            outcome = result.get("status")
+            if outcome in {"deleted", "not_found"}:
+                self.refresh_quiz_list()
+            if outcome == "not_found":
+                QMessageBox.information(self, "Quiz not found", "This quiz no longer exists.")
+            elif outcome == "forbidden":
+                QMessageBox.warning(self, "Deletion rejected", "You are not authorized to delete this quiz.")
+            elif outcome != "deleted":
+                QMessageBox.warning(self, "Delete failed", "The quiz could not be deleted.")
 
     def refresh_question_list(self):
         self.editor_question_list.clear()
@@ -790,6 +802,7 @@ class QuizEditor(QWidget):
                 message,
             )
             return True
+        QMessageBox.critical(self, "Save failed", "The quiz could not be saved.")
         return False
 
     def publish_current_quiz(self):

@@ -101,6 +101,23 @@ class PostgresClassRepository:
         except SQLAlchemyError:
             return []
 
+    def get_invitation(self, kind, content_id, actor_id, actor_role):
+        """Return one authorized content invitation without expanding all classes."""
+        try:
+            with self.session_factory() as session:
+                classroom = self._class_for_content(session, kind, content_id)
+                if classroom is None or (
+                    actor_role != "admin" and classroom.owner_id != str(actor_id)
+                ):
+                    return None
+                invitation = session.scalar(select(ClassInvitationModel).where(
+                    ClassInvitationModel.class_id == classroom.id,
+                    ClassInvitationModel.status == "active",
+                ))
+                return invitation.display_code if invitation else ""
+        except (SQLAlchemyError, ValueError):
+            return None
+
     def join_with_code(self, code, user_id):
         normalized = self.normalize_code(code)
         if not normalized:

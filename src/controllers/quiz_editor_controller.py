@@ -38,6 +38,7 @@ class QuizEditorController:
         self.current_quiz_info = None
         self.current_questions = []
         self.has_unsaved_changes = False
+        self._editable_by_name = {}
 
     def get_quiz_names(self):
         """Get list of all quiz names."""
@@ -46,13 +47,15 @@ class QuizEditorController:
     def get_quiz_entries(self):
         """Editable quiz rows with their lifecycle status for the editor menu."""
         metadata = {
-            item["file"]: item for item in self.moderation.get_all_content()
+            item["file"]: item for item in self._moderation_items()
         }
-        return [
+        rows = [
             {**quiz, "status": metadata[quiz["file"]]["status"],
              "visibility": metadata[quiz["file"]].get("visibility", "private")}
             for quiz in self._editable_quizzes()
         ]
+        self._editable_by_name = {row["name"]: row for row in rows}
+        return rows
 
     def get_current_moderation(self):
         """Return lifecycle details for the quiz currently open in the editor."""
@@ -73,6 +76,9 @@ class QuizEditorController:
     def get_current_test_settings(self):
         if not self.current_quiz_info:
             return normalize_test_settings()
+        metadata = self.get_current_moderation()
+        if metadata:
+            return normalize_test_settings(metadata.get("test_settings"))
         return self.repo.get_test_settings(self.current_quiz_info["file"])
 
     def generate_or_rotate_invite_code(self):
@@ -100,8 +106,10 @@ class QuizEditorController:
 
     def load_quiz(self, name):
         """Load a quiz by name."""
-        quizzes = self._editable_quizzes()
-        self.current_quiz_info = next((q for q in quizzes if q["name"] == name), None)
+        self.current_quiz_info = self._editable_by_name.get(name)
+        if self.current_quiz_info is None:
+            quizzes = self._editable_quizzes()
+            self.current_quiz_info = next((q for q in quizzes if q["name"] == name), None)
 
         if self.current_quiz_info:
             self.current_questions = self.repo.load_quiz_questions(
@@ -126,18 +134,37 @@ class QuizEditorController:
                 if 'id' not in q or not q['id']:
                     q['id'] = str(uuid.uuid4())
 
-            self.repo.save_quiz_content(
+            save_actor = {"actor_id": self.owner_id, "actor_role": self.role}
+            if getattr(self.repo, "supports_deferred_editor_metadata", False):
+                save_actor["defer_metadata"] = bool(
+                    self.current_quiz_info.get("source_path")
+                )
+            saved = self.repo.save_quiz_content(
                 self.current_quiz_info["file"], questions,
                 normalize_test_settings(test_settings),
-                actor_id=self.owner_id, actor_role=self.role,
+                **save_actor,
             )
+            # Legacy JSON repositories return None after a successful write;
+            # HTTP repositories return an explicit boolean.
+            if saved is False:
+                return False
             self.repo.prune_progress(self.current_quiz_info["file"], set(valid_ids))
             status = visibility_submission_status(visibility)
-            self.moderation.set_content_status(
-                self.current_quiz_info["file"], "quiz", status, self.owner_id,
-                visibility=visibility,
-                actor_role=self.role,
-            )
+            current = self.current_quiz_info
+            if current.get("source_path"):
+                current["test_settings"] = normalize_test_settings(test_settings)
+                moderated = self.moderation.update_status(
+                    current, status, self.owner_id, visibility=visibility,
+                    actor_role=self.role,
+                )
+            else:
+                moderated = self.moderation.set_content_status(
+                    current["file"], "quiz", status, self.owner_id,
+                    visibility=visibility, actor_role=self.role,
+                )
+            if not moderated:
+                return False
+            current.update({"status": status, "visibility": visibility})
             self.has_unsaved_changes = False
             return True
         except Exception as e:
@@ -172,15 +199,22 @@ class QuizEditorController:
         )
 
     def copy_quiz(self, original_name, new_name):
-        original = next(
-            (quiz for quiz in self._editable_quizzes() if quiz["name"] == original_name),
-            None,
-        )
+        original = self._editable_by_name.get(original_name)
+        if original is None:
+            original = next(
+                (quiz for quiz in self._editable_quizzes() if quiz["name"] == original_name),
+                None,
+            )
         if not original or not can_edit_content(
             self.role,
             str(self.get_current_owner(original)) == self.owner_id,
         ):
             return False
+        copy_item = getattr(self.repo, "copy_quiz_item", None)
+        if callable(copy_item):
+            return copy_item(
+                original, new_name, self.owner_id, actor_role=self.role
+            )
         return self.repo.copy_quiz(
             original_name, new_name, self.owner_id, actor_role=self.role
         )
@@ -191,6 +225,8 @@ class QuizEditorController:
         return self.repo.get_edit_history(self.current_quiz_info["file"])
 
     def get_current_owner(self, quiz):
+        if quiz.get("owner_id") is not None:
+            return str(quiz["owner_id"])
         item = next(
             (entry for entry in self._moderation_items() if entry["file"] == quiz["file"]),
             {},
@@ -206,16 +242,40 @@ class QuizEditorController:
             if item["kind"] == "quiz"
             and (self.role == "admin" or str(item["owner_id"]) == self.owner_id)
         }
-        return [quiz for quiz in self.repo.get_all_quizzes() if quiz["file"] in allowed]
+        owned_items = getattr(self.repo, "get_owned_content_items", None)
+        if self.role == "teacher" and callable(owned_items):
+            rows = [{**item, "file": item["file"]} for item in items]
+        else:
+            rows = (self.repo.get_owned_quizzes()
+                    if hasattr(self.repo, "get_owned_quizzes")
+                    else self.repo.get_all_quizzes())
+        return [quiz for quiz in rows if quiz["file"] in allowed]
 
     def _moderation_items(self):
-        return self.moderation.get_all_content()
+        owned_items = getattr(self.repo, "get_owned_content_items", None)
+        if self.role == "teacher" and callable(owned_items):
+            return owned_items()
+        return self.moderation.get_all_content(kind="quiz")
 
     def delete_quiz(self, name):
-        quiz = next((item for item in self._editable_quizzes() if item["name"] == name), None)
+        return self.delete_quiz_result(name)["status"] == "deleted"
+
+    def delete_quiz_result(self, name):
+        quiz = self._editable_by_name.get(name)
+        if quiz is None:
+            quiz = next((item for item in self._editable_quizzes() if item["name"] == name), None)
         if not quiz or not can_edit_content(
             self.role,
             self.get_current_owner(quiz) == self.owner_id,
         ):
-            return False
-        return self.repo.delete_quiz(name)
+            return {"status": "forbidden", "status_code": None}
+        delete_item = getattr(self.repo, "delete_quiz_item_result", None)
+        if callable(delete_item):
+            return delete_item(quiz)
+        delete_result = getattr(self.repo, "delete_quiz_result", None)
+        if callable(delete_result):
+            return delete_result(name)
+        return {
+            "status": "deleted" if self.repo.delete_quiz(name) else "failed",
+            "status_code": None,
+        }

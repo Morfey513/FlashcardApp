@@ -108,10 +108,56 @@ class PostgresContentBodyRepository:
                 rows = session.scalars(select(QuizQuestionModel).where(
                     QuizQuestionModel.quiz_id == str(quiz_id)
                 ).order_by(QuizQuestionModel.position)).all()
+                options_by_question = {}
+                pairs_by_question = {}
+                variants_by_question = {}
+                media_by_question = {}
+                if rows:
+                    for option in session.scalars(select(QuestionOptionModel).where(
+                        QuestionOptionModel.quiz_id == str(quiz_id)
+                    ).order_by(
+                        QuestionOptionModel.question_id, QuestionOptionModel.position
+                    )).all():
+                        options_by_question.setdefault(option.question_id, []).append(option)
+                    for pair in session.scalars(select(MatchingPairModel).where(
+                        MatchingPairModel.quiz_id == str(quiz_id)
+                    ).order_by(
+                        MatchingPairModel.question_id, MatchingPairModel.position
+                    )).all():
+                        pairs_by_question.setdefault(pair.question_id, []).append(pair)
+                    for variant in session.scalars(select(ShortAnswerVariantModel).where(
+                        ShortAnswerVariantModel.quiz_id == str(quiz_id)
+                    ).order_by(
+                        ShortAnswerVariantModel.question_id,
+                        ShortAnswerVariantModel.position,
+                    )).all():
+                        variants_by_question.setdefault(
+                            variant.question_id, []
+                        ).append(variant)
+                    media_rows = session.execute(select(
+                        QuestionMediaModel.question_id,
+                        MediaModel.storage_key,
+                    ).join(
+                        MediaModel, MediaModel.id == QuestionMediaModel.media_id,
+                    ).where(
+                        QuestionMediaModel.quiz_id == str(quiz_id),
+                        QuestionMediaModel.role == "image",
+                    ).order_by(
+                        QuestionMediaModel.question_id, QuestionMediaModel.media_id,
+                    )).all()
+                    for question_id, storage_key in media_rows:
+                        media_by_question.setdefault(question_id, storage_key)
                 return {
                     "id": metadata.id, "name": metadata.name,
                     "content_version": metadata.content_version,
-                    "questions": [self._question_public(session, row, include_answers=include_answers) for row in rows],
+                    "questions": [self._question_from_parts(
+                        row,
+                        options=options_by_question.get(row.question_id, ()),
+                        pairs=pairs_by_question.get(row.question_id, ()),
+                        variants=variants_by_question.get(row.question_id, ()),
+                        image_path=media_by_question.get(row.question_id, ""),
+                        include_answers=include_answers,
+                    ) for row in rows],
                 }
         except SQLAlchemyError as exc:
             logger.error("Could not load quiz body '%s': %s", quiz_id, exc)
@@ -120,20 +166,71 @@ class PostgresContentBodyRepository:
     def get_flashcard_deck(self, deck_id: str) -> dict | None:
         try:
             with self.session_factory() as session:
-                metadata = session.get(FlashcardDeckMetadataModel, str(deck_id))
+                normalized_id = str(deck_id)
+                metadata = session.get(FlashcardDeckMetadataModel, normalized_id)
                 if metadata is None:
                     return None
                 rows = session.scalars(select(FlashcardModel).where(
-                    FlashcardModel.deck_id == str(deck_id)
+                    FlashcardModel.deck_id == normalized_id
                 ).order_by(FlashcardModel.position)).all()
+                media_by_card = {}
+                if rows:
+                    media_rows = session.execute(select(
+                        FlashcardMediaModel.card_id,
+                        FlashcardMediaModel.role,
+                        MediaModel.storage_key,
+                    ).join(
+                        MediaModel, MediaModel.id == FlashcardMediaModel.media_id,
+                    ).where(
+                        FlashcardMediaModel.deck_id == normalized_id,
+                    ).order_by(
+                        FlashcardMediaModel.card_id,
+                        FlashcardMediaModel.role,
+                        FlashcardMediaModel.media_id,
+                    )).all()
+                    for card_id, role, storage_key in media_rows:
+                        media_by_card.setdefault(card_id, []).append((role, storage_key))
                 return {
                     "id": metadata.id, "name": metadata.name,
                     "content_version": metadata.content_version,
-                    "cards": [self._card_public(session, row) for row in rows],
+                    "cards": [
+                        self._card_from_media(row, media_by_card.get(row.card_id, ()))
+                        for row in rows
+                    ],
                 }
         except SQLAlchemyError as exc:
             logger.error("Could not load flashcard body '%s': %s", deck_id, exc)
             return None
+
+    def get_quiz_progress_items(self, quiz_id: str) -> list[dict]:
+        """Return only the stable item identity/text needed by progress summaries."""
+        try:
+            with self.session_factory() as session:
+                rows = session.execute(select(
+                    QuizQuestionModel.question_id,
+                    QuizQuestionModel.question_text,
+                ).where(
+                    QuizQuestionModel.quiz_id == str(quiz_id)
+                ).order_by(QuizQuestionModel.position)).all()
+                return [{"id": row.question_id, "text": row.question_text} for row in rows]
+        except SQLAlchemyError as exc:
+            logger.error("Could not load quiz progress items '%s': %s", quiz_id, exc)
+            return []
+
+    def get_flashcard_progress_items(self, deck_id: str) -> list[dict]:
+        """Return only the stable item identity/text needed by progress summaries."""
+        try:
+            with self.session_factory() as session:
+                rows = session.execute(select(
+                    FlashcardModel.card_id,
+                    FlashcardModel.front_text,
+                ).where(
+                    FlashcardModel.deck_id == str(deck_id)
+                ).order_by(FlashcardModel.position)).all()
+                return [{"id": row.card_id, "text": row.front_text} for row in rows]
+        except SQLAlchemyError as exc:
+            logger.error("Could not load flashcard progress items '%s': %s", deck_id, exc)
+            return []
 
     def _add_question(self, session, metadata, source, position):
         question_id = str(source.get("id", "")).strip()
@@ -288,33 +385,49 @@ class PostgresContentBodyRepository:
 
     @staticmethod
     def _question_public(session, row, *, include_answers: bool = True):
-        result = {
-            "id": row.question_id, "question": row.question_text,
-            "type": row.question_type, "answer": row.correct_answer,
-            "has_image": False, "image_path": "",
-        }
         options = session.scalars(select(QuestionOptionModel).where(
             QuestionOptionModel.quiz_id == row.quiz_id,
             QuestionOptionModel.question_id == row.question_id,
         ).order_by(QuestionOptionModel.position)).all()
-        if row.question_type in {"single_choice", "multiple_choice"}:
-            result["choices"] = [option.option_text for option in options]
         pairs = session.scalars(select(MatchingPairModel).where(
             MatchingPairModel.quiz_id == row.quiz_id,
             MatchingPairModel.question_id == row.question_id,
         ).order_by(MatchingPairModel.position)).all()
-        if pairs:
-            result["pairs"] = [{"prompt": pair.prompt, "answer": pair.answer} for pair in pairs]
-            result.pop("answer", None)
         attachment = session.scalar(select(QuestionMediaModel).where(
             QuestionMediaModel.quiz_id == row.quiz_id,
             QuestionMediaModel.question_id == row.question_id,
             QuestionMediaModel.role == "image",
         ))
+        image_path = ""
         if attachment:
             media = session.get(MediaModel, attachment.media_id)
-            result["has_image"] = True
-            result["image_path"] = media.storage_key
+            image_path = media.storage_key
+        return PostgresContentBodyRepository._question_from_parts(
+            row, options=options, pairs=pairs,
+            image_path=image_path, include_answers=include_answers,
+        )
+
+    @staticmethod
+    def _question_from_parts(
+        row, *, options=(), pairs=(), variants=(), image_path="",
+        include_answers=True,
+    ):
+        answer = row.correct_answer
+        if answer is None and row.question_type == "short_answer" and variants:
+            values = [variant.answer_text for variant in variants]
+            answer = values[0] if len(values) == 1 else values
+        result = {
+            "id": row.question_id, "question": row.question_text,
+            "type": row.question_type, "answer": answer,
+            "has_image": bool(image_path), "image_path": str(image_path or ""),
+        }
+        if row.question_type in {"single_choice", "multiple_choice"}:
+            result["choices"] = [option.option_text for option in options]
+        if pairs:
+            result["pairs"] = [
+                {"prompt": pair.prompt, "answer": pair.answer} for pair in pairs
+            ]
+            result.pop("answer", None)
         if not include_answers:
             result.pop("answer", None)
             if "pairs" in result:
@@ -323,23 +436,30 @@ class PostgresContentBodyRepository:
 
     @staticmethod
     def _card_public(session, row):
+        attachments = session.scalars(select(FlashcardMediaModel).where(
+            FlashcardMediaModel.deck_id == row.deck_id,
+            FlashcardMediaModel.card_id == row.card_id,
+        )).all()
+        media_rows = []
+        for attachment in attachments:
+            media = session.get(MediaModel, attachment.media_id)
+            media_rows.append((attachment.role, media.storage_key))
+        return PostgresContentBodyRepository._card_from_media(row, media_rows)
+
+    @staticmethod
+    def _card_from_media(row, media_rows):
         result = {
             "id": row.card_id, "front": row.front_text, "back": row.back_text,
             "hint": row.hint_text, "description": row.description_text,
             "image": "", "audio": {},
         }
-        attachments = session.scalars(select(FlashcardMediaModel).where(
-            FlashcardMediaModel.deck_id == row.deck_id,
-            FlashcardMediaModel.card_id == row.card_id,
-        )).all()
-        for attachment in attachments:
-            media = session.get(MediaModel, attachment.media_id)
-            if attachment.role == "image":
-                result["image"] = media.storage_key
-            elif attachment.role == "audio":
-                result["audio"] = media.storage_key
-            elif attachment.role.startswith("audio_"):
+        for role, storage_key in media_rows:
+            if role == "image":
+                result["image"] = storage_key
+            elif role == "audio":
+                result["audio"] = storage_key
+            elif role.startswith("audio_"):
                 if not isinstance(result["audio"], dict):
                     result["audio"] = {}
-                result["audio"][attachment.role.removeprefix("audio_")] = media.storage_key
+                result["audio"][role.removeprefix("audio_")] = storage_key
         return result

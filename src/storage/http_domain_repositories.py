@@ -24,6 +24,7 @@ class _HttpContentRepositoryBase:
     kind = ""
     filename = ""
     supports_offline_download = True
+    supports_deferred_editor_metadata = True
 
     def __init__(self, user_repository):
         self.user_repository = user_repository
@@ -32,10 +33,13 @@ class _HttpContentRepositoryBase:
         self.learning = HttpLearningRepository(user_repository)
         self.histories = HttpContentHistoryRepository(user_repository)
 
-    def _metadata_rows(self):
+    def _metadata_rows(self, scope=None):
         role = str((self.user_repository._current_user or {}).get("role", "student"))
-        scope = "all" if role == "admin" else "available"
-        return self.metadata.get_all(self.kind, scope)
+        selected_scope = scope or ("all" if role == "admin" else "available")
+        return self.metadata.get_all(self.kind, selected_scope)
+
+    def get_owned_content(self):
+        return self.metadata.get_all(self.kind, "owned")
 
     @staticmethod
     def resolve_path(_value):
@@ -50,11 +54,17 @@ class _HttpContentRepositoryBase:
                 "updated_at": item.get("updated_at")}
 
     def get_content_items(self):
+        return self._content_items(self._metadata_rows())
+
+    def get_owned_content_items(self):
+        """Return the editor's owned rows from one actor-scoped metadata request."""
+        return self._content_items(self.get_owned_content())
+
+    def _content_items(self, metadata_rows):
         items = []
-        for metadata in self._metadata_rows():
-            history = self.histories.get_history(self.kind, metadata["id"])
-            latest = history["moderation"][-1] if history["moderation"] else {}
+        for metadata in metadata_rows:
             items.append({
+                "id": metadata["id"],
                 "kind": self.kind,
                 "name": metadata["name"],
                 "file": metadata["id"],
@@ -65,16 +75,20 @@ class _HttpContentRepositoryBase:
                 "allowed_user_ids": [],
                 # The API has already enforced public/class enrollment scope.
                 "server_authorized": True,
-                "reviewed_by": latest.get("actor_id"),
-                "reviewed_at": latest.get("timestamp"),
-                "review_note": latest.get("note", ""),
+                "reviewed_by": None,
+                "reviewed_at": None,
+                "review_note": "",
+                "source_path": metadata.get("source_path", ""),
+                "updated_at": metadata.get("updated_at"),
                 "test_settings": normalize_test_settings(metadata.get("test_settings")),
                 "content_version": metadata.get("content_version"),
             })
         return items
 
     def update_moderation(self, item, status, visibility=None, note=""):
-        metadata = self.metadata.get_by_id(self.kind, _content_id(item["file"]))
+        metadata = item if item.get("source_path") else self.metadata.get_by_id(
+            self.kind, _content_id(item["file"])
+        )
         if metadata is None:
             return False
         payload = {
@@ -116,6 +130,9 @@ class HttpQuizRepository(_HttpContentRepositoryBase):
 
     def get_all_quizzes(self):
         return [self._entry(item) for item in self._metadata_rows()]
+
+    def get_owned_quizzes(self):
+        return [self._entry(item) for item in self.get_owned_content()]
 
     def load_quiz_questions(self, value):
         body = self._body(_content_id(value)) or {}
@@ -165,6 +182,8 @@ class HttpQuizRepository(_HttpContentRepositoryBase):
         })
         if saved is None:
             return False
+        if _actor.get("defer_metadata"):
+            return True
         if test_settings is not None:
             payload = {
                 "id": content_id, "name": metadata["name"],
@@ -202,9 +221,26 @@ class HttpQuizRepository(_HttpContentRepositoryBase):
             new_name, questions, owner_id, self.get_test_settings(original["file"]), **actor
         )
 
+    def copy_quiz_item(self, original, new_name, owner_id=None, **actor):
+        questions = copy.deepcopy(self.load_quiz_questions(original["file"]))
+        for question in questions:
+            question["id"] = str(uuid.uuid4())
+        return self.create_quiz(
+            new_name, questions, owner_id,
+            normalize_test_settings(original.get("test_settings")), **actor,
+        )
+
     def delete_quiz(self, name):
+        return self.delete_quiz_result(name)["status"] == "deleted"
+
+    def delete_quiz_result(self, name):
         item = next((row for row in self.get_all_quizzes() if row["name"] == name), None)
-        return bool(item and self.metadata.delete("quiz", item["id"]))
+        if item is None:
+            return {"status": "not_found", "status_code": None}
+        return self.metadata.delete_result("quiz", item["id"])
+
+    def delete_quiz_item_result(self, item):
+        return self.metadata.delete_result("quiz", _content_id(item["file"]))
 
     def get_test_settings(self, value):
         item = self.metadata.get_by_id("quiz", _content_id(value))
@@ -212,6 +248,12 @@ class HttpQuizRepository(_HttpContentRepositoryBase):
 
     def get_quiz_progress(self, value, user_id="guest"):
         return self.learning.get_progress("quiz", _content_id(value))
+
+    def get_quiz_progress_items(self, value, user_id="guest"):
+        return self.learning.get_progress_items("quiz", _content_id(value))
+
+    def get_progress_summary(self, *, refresh=False):
+        return self.learning.get_progress_summary(refresh=refresh)
 
     def save_quiz_progress(self, value, progress_data, user_id="guest"):
         return self.learning.save_progress("quiz", _content_id(value), progress_data)
@@ -283,6 +325,9 @@ class HttpFlashcardRepository(_HttpContentRepositoryBase):
     def get_all_decks(self):
         return [self._entry(item) for item in self._metadata_rows()]
 
+    def get_owned_decks(self):
+        return [self._entry(item) for item in self.get_owned_content()]
+
     def load_deck_cards(self, value):
         body = self._body(_content_id(value)) or {}
         return list(body.get("cards") or [])
@@ -325,12 +370,32 @@ class HttpFlashcardRepository(_HttpContentRepositoryBase):
             card["id"] = str(uuid.uuid4())
         return self.create_deck(new_name, cards, owner_id, **actor)
 
+    def copy_deck_item(self, original, new_name, owner_id=None, **actor):
+        cards = copy.deepcopy(self.load_deck_cards(original["file"]))
+        for card in cards:
+            card["id"] = str(uuid.uuid4())
+        return self.create_deck(new_name, cards, owner_id, **actor)
+
     def delete_deck_permanently(self, name):
+        return self.delete_deck_result(name)["status"] == "deleted"
+
+    def delete_deck_result(self, name):
         item = next((row for row in self.get_all_decks() if row["name"] == name), None)
-        return bool(item and self.metadata.delete("flashcard", item["id"]))
+        if item is None:
+            return {"status": "not_found", "status_code": None}
+        return self.metadata.delete_result("flashcard", item["id"])
+
+    def delete_deck_item_result(self, item):
+        return self.metadata.delete_result("flashcard", _content_id(item["file"]))
 
     def get_progress(self, value, user_id="guest"):
         return self.learning.get_progress("flashcard", _content_id(value))
+
+    def get_progress_items(self, value, user_id="guest"):
+        return self.learning.get_progress_items("flashcard", _content_id(value))
+
+    def get_progress_summary(self, *, refresh=False):
+        return self.learning.get_progress_summary(refresh=refresh)
 
     def save_deck_progress(self, value, progress_data, user_id="guest"):
         return self.learning.save_progress("flashcard", _content_id(value), progress_data)

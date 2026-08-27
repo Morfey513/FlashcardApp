@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
 from src.logic.passwords import PasswordHasher
@@ -93,3 +93,46 @@ def test_unpublished_content_cannot_accept_invitation(tmp_path):
     assert not success
     assert "not currently available" in message
     engine.dispose()
+
+
+def test_direct_invitation_lookup_is_bounded_across_owned_classes(tmp_path):
+    metadata, classes, _sessions, engine = _repositories(tmp_path)
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    for index in range(100):
+        code = f"CODE-{alphabet[index // len(alphabet)]}{alphabet[index % len(alphabet)]}"
+        source = {
+            "id": f"quiz-{index}", "name": f"Quiz {index}",
+            "moderation": {
+                "owner_id": "teacher-1", "status": "published",
+                "visibility": "class_only",
+                "invite": {"code": code},
+            },
+        }
+        assert metadata.import_quiz(source, f"quiz-{index}.json")
+        assert classes.import_content_access(source, "quiz")
+
+    statements = []
+    listener = lambda *_args: statements.append(1)
+    event.listen(engine, "before_cursor_execute", listener)
+    try:
+        assert classes.get_invitation(
+            "quiz", "quiz-0", "teacher-1", "teacher"
+        ) == "CODE-AA"
+        one_lookup = len(statements)
+        statements.clear()
+        assert classes.get_invitation(
+            "quiz", "quiz-99", "teacher-1", "teacher"
+        ) == f"CODE-{alphabet[99 // len(alphabet)]}{alphabet[99 % len(alphabet)]}"
+        hundredth_lookup = len(statements)
+        statements.clear()
+        assert classes.get_invitation(
+            "quiz", "quiz-0", "student-1", "student"
+        ) is None
+
+        assert one_lookup <= 3
+        assert hundredth_lookup <= 3
+        assert hundredth_lookup == one_lookup
+        assert len(statements) <= 2
+    finally:
+        event.remove(engine, "before_cursor_execute", listener)
+        engine.dispose()

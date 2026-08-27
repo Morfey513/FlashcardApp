@@ -906,7 +906,9 @@ class QuizViewer(QWidget):
         self.quiz_list.clear()
         self.quiz_rows = {}
         t = self.translator
-        quizzes = self.controller.get_quiz_summaries()
+        list_loader = getattr(self.controller, "get_quiz_list_items", None)
+        quizzes = list_loader() if callable(list_loader) else self.controller.get_quiz_summaries()
+        self.quiz_items = {quiz["name"]: quiz for quiz in quizzes}
         known_ids = {str(item.get("id") or item.get("file")) for item in quizzes}
         for cached in self.library.list_downloaded("quiz"):
             if str(cached["content_id"]) not in known_ids:
@@ -985,10 +987,15 @@ class QuizViewer(QWidget):
         for name, row in getattr(self, "quiz_rows", {}).items():
             row.set_selected(name == selected_name)
         if hasattr(self, "take_test_btn"):
-            self.take_test_btn.setEnabled(
-                bool(selected_name and self.controller.can_start_test(selected_name))
-            )
-            policy = self.controller.get_test_policy(selected_name) if selected_name else None
+            selected_quiz = getattr(self, "quiz_items", {}).get(selected_name)
+            policy_loader = getattr(self.controller, "get_test_policy_for_summary", None)
+            if callable(policy_loader) and selected_quiz:
+                policy = policy_loader(selected_quiz)
+                can_start = bool(policy and policy["can_start"])
+            else:
+                policy = self.controller.get_test_policy(selected_name) if selected_name else None
+                can_start = bool(selected_name and self.controller.can_start_test(selected_name))
+            self.take_test_btn.setEnabled(can_start)
             if policy and policy["completed"]:
                 self.take_test_btn.setToolTip(
                     "The configured attempt limit has been reached for this Class-Only test."

@@ -503,8 +503,7 @@ class ModerationDialog(QDialog):
         self.tabs.addTab(tab, "Users")
 
     def refresh(self):
-        self.user_data = self.user_repository.get_all_users()
-        if self.role == "teacher" and not self.user_data:
+        if self.role == "teacher":
             classes = self.invites.get_owned_classes(self.actor_id, "all")
             user_ids = [
                 row["user_id"] for item in classes for row in item.get("roster", [])
@@ -517,20 +516,12 @@ class ModerationDialog(QDialog):
                     user for user_id in user_ids
                     if (user := self.user_repository.get_user_by_id(user_id)) is not None
                 ]
-        self.users_by_id = {str(user["id"]): user for user in self.user_data}
-        if self.role == "teacher":
+            self.users_by_id = {str(user["id"]): user for user in self.user_data}
             self._refresh_classes()
             return
 
-        self.content = [
-            item for item in self.repo.get_all_content()
-            if item["status"] == "pending_review"
-        ]
-        self.items.clear()
-        for item in self.content:
-            icon = "📝" if item["kind"] == "quiz" else "🎴"
-            self.items.addItem(f"{icon} {item['name']}")
-        self._show_content_detail(self.items.currentRow())
+        self.user_data = self.user_repository.get_all_users()
+        self.users_by_id = {str(user["id"]): user for user in self.user_data}
         self._refresh_user_table()
         self._refresh_content()
         self._refresh_classes()

@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
 
@@ -572,6 +572,212 @@ def test_authenticated_learning_progress_and_attempt_api(identity_api):
     assert adapter.get_quiz_attempts("learning-quiz")[0]["score"] == 1
 
 
+def test_batched_progress_api_is_authorized_current_and_bounded(identity_api):
+    client, users, sessions = identity_api
+    teacher = _register(client, "progress.teacher")
+    assert users.update_role(teacher["user"]["id"], "teacher")
+    student = _register(client, "progress.student")
+    student_id = student["user"]["id"]
+    teacher_id = teacher["user"]["id"]
+    headers = {"Authorization": f"Bearer {student['access_token']}"}
+    metadata = PostgresContentMetadataRepository(sessions)
+    classes = PostgresClassRepository(sessions)
+    bodies = client.app.state.content_body_repository
+    learning = client.app.state.learning_repository
+
+    public_deck = {
+        "id": "summary-public-deck", "name": "Public Deck",
+        "moderation": {"owner_id": teacher_id, "status": "published",
+                       "visibility": "public"},
+    }
+    class_quiz = {
+        "id": "summary-class-quiz", "name": "Class Quiz",
+        "moderation": {
+            "owner_id": teacher_id, "status": "published", "visibility": "class_only",
+            "invite": {"code": "SUMM-ARY1"},
+            "enrollments": {student_id: {}},
+        },
+    }
+    private_quiz = {
+        "id": "summary-private-quiz", "name": "Private Quiz",
+        "moderation": {"owner_id": teacher_id, "status": "published",
+                       "visibility": "private"},
+    }
+    assert metadata.import_flashcard_deck(public_deck, "summary-public-deck.json")
+    assert metadata.import_quiz(class_quiz, "summary-class-quiz.json")
+    assert metadata.import_quiz(private_quiz, "summary-private-quiz.json")
+    assert classes.import_content_access(class_quiz, "quiz")
+    assert bodies.import_flashcard_deck({
+        "id": public_deck["id"], "cards": [
+            {"id": "card-1", "front": "Prompt", "back": "Answer"},
+        ],
+    })
+    for quiz_id in (class_quiz["id"], private_quiz["id"]):
+        assert bodies.import_quiz({
+            "id": quiz_id, "questions": [{
+                "id": "question-1", "type": "short_answer",
+                "question": "Question", "answer": "Answer",
+            }],
+        })
+    assert learning.import_flashcard_progress(public_deck["id"], student_id, {
+        "card-1": {"correct": 5, "wrong": 2, "mastered": True},
+    })
+    assert learning.import_quiz_progress(class_quiz["id"], student_id, {
+        "question-1": {"correct": 1, "wrong": 3, "mastered": False},
+    })
+
+    statements = []
+    engine = sessions.kw["bind"]
+    listener = lambda *_args: statements.append(1)
+    event.listen(engine, "before_cursor_execute", listener)
+    response = client.get(
+        "/api/v1/progress/summary?include_items=true", headers=headers,
+    )
+    event.remove(engine, "before_cursor_execute", listener)
+
+    assert response.status_code == 200
+    # Three existing authentication/profile statements plus one set-based projection.
+    assert len(statements) == 4
+    by_id = {row["id"]: row for row in response.json()["collections"]}
+    assert set(by_id) == {public_deck["id"], class_quiz["id"]}
+    assert by_id[public_deck["id"]]["items"][0] == {
+        "id": "card-1", "text": "Prompt", "mastered": True,
+        "correct": 5, "wrong": 2,
+    }
+    assert by_id[class_quiz["id"]]["summary"]["percent"] == 0
+
+    assert classes.remove_member(
+        "quiz", class_quiz["id"], teacher_id, "teacher", student_id,
+    )[0]
+    assert {row["id"] for row in client.get(
+        "/api/v1/progress/summary", headers=headers,
+    ).json()["collections"]} == {public_deck["id"]}
+
+    public_deck["moderation"]["status"] = "draft"
+    assert metadata.import_flashcard_deck(public_deck, "summary-public-deck.json")
+    assert client.get("/api/v1/progress/summary", headers=headers).json()["collections"] == []
+    assert metadata.delete_for_actor(
+        "flashcard", public_deck["id"], teacher_id, "teacher",
+    )
+    assert client.get("/api/v1/progress/summary", headers=headers).json()["collections"] == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "content_id", "item_id", "text"),
+    [("quiz", "quiz-1", "q1", "Question text"),
+     ("flashcard", "deck-1", "c1", "Card front")],
+)
+def test_progress_endpoint_can_return_lightweight_display_items(
+    identity_api, kind, content_id, item_id, text,
+):
+    client, _users, _sessions = identity_api
+    registration = _register(client, f"progress.items.{kind}")
+    headers = {"Authorization": f"Bearer {registration['access_token']}"}
+
+    class ContentStub:
+        def get_for_actor(self, *_args):
+            return [{"id": content_id}]
+
+    class LearningStub:
+        def get_quiz_progress(self, *_args):
+            return {item_id: {"mastered": True, "correct": 4, "wrong": 1}}
+
+        get_flashcard_progress = get_quiz_progress
+
+    class BodyStub:
+        calls = []
+
+        def get_quiz(self, value, *, include_answers=True):
+            self.calls.append(("quiz", value))
+            assert value == content_id
+            assert include_answers is False
+            return {"questions": [{"id": item_id, "question": text}]}
+
+        def get_flashcard_deck(self, value):
+            self.calls.append(("flashcard", value))
+            assert value == content_id
+            return {"cards": [{"id": item_id, "front": text}]}
+
+    client.app.state.content_repository = ContentStub()
+    client.app.state.learning_repository = LearningStub()
+    bodies = BodyStub()
+    client.app.state.content_body_repository = bodies
+
+    plain = client.get(
+        f"/api/v1/progress/{kind}/{content_id}", headers=headers,
+    )
+    assert plain.json() == {
+        "progress": {item_id: {"mastered": True, "correct": 4, "wrong": 1}},
+    }
+    assert bodies.calls == []
+
+    response = client.get(
+        f"/api/v1/progress/{kind}/{content_id}?include_items=true", headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [{
+        "id": item_id, "text": text, "mastered": True, "correct": 4, "wrong": 1,
+    }]
+    assert response.json()["summary"] == {
+        "mastered": 1, "total": 1, "percent": 100, "has_progress": True,
+    }
+    assert bodies.calls == [(kind, content_id)]
+
+
+@pytest.mark.parametrize(
+    ("kind", "content_id", "item_id", "text", "method_name"),
+    [("quiz", "quiz-1", "q1", "Question text", "get_quiz_progress_items"),
+     ("flashcard", "deck-1", "c1", "Card front", "get_flashcard_progress_items")],
+)
+def test_progress_endpoint_prefers_item_projection_over_full_body(
+    identity_api, kind, content_id, item_id, text, method_name,
+):
+    client, _users, _sessions = identity_api
+    registration = _register(client, f"progress.projection.{kind}")
+    headers = {"Authorization": f"Bearer {registration['access_token']}"}
+
+    class ContentStub:
+        def get_for_actor(self, *_args):
+            return [{"id": content_id}]
+
+    class LearningStub:
+        def get_quiz_progress(self, *_args):
+            return {item_id: {"mastered": True, "correct": 2, "wrong": 0}}
+
+        get_flashcard_progress = get_quiz_progress
+
+    class BodyStub:
+        def get_quiz(self, *_args, **_kwargs):
+            raise AssertionError("full quiz body must not be loaded")
+
+        def get_flashcard_deck(self, *_args):
+            raise AssertionError("full deck body must not be loaded")
+
+        def get_quiz_progress_items(self, value):
+            assert method_name == "get_quiz_progress_items"
+            assert value == content_id
+            return [{"id": item_id, "text": text}]
+
+        def get_flashcard_progress_items(self, value):
+            assert method_name == "get_flashcard_progress_items"
+            assert value == content_id
+            return [{"id": item_id, "text": text}]
+
+    client.app.state.content_repository = ContentStub()
+    client.app.state.learning_repository = LearningStub()
+    client.app.state.content_body_repository = BodyStub()
+
+    response = client.get(
+        f"/api/v1/progress/{kind}/{content_id}?include_items=true", headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [{
+        "id": item_id, "text": text, "mastered": True, "correct": 2, "wrong": 0,
+    }]
+
+
 def test_quiz_attempt_put_enforces_owner_and_quiz(identity_api):
     client, users, sessions = identity_api
     owner = _register(client, "attempt.owner")
@@ -678,6 +884,289 @@ def test_content_body_api_owner_write_and_authenticated_read(identity_api):
     assert student_bodies.save_quiz({
         "id": "body-quiz", "name": "Changed", "questions": []
     }) is None
+
+
+def test_quiz_editor_can_resubmit_published_content_through_real_api(identity_api):
+    client, users, sessions = identity_api
+    teacher = _register(client, "editor.published.teacher")
+    teacher_id = teacher["user"]["id"]
+    assert users.update_role(teacher_id, "teacher")
+    metadata = PostgresContentMetadataRepository(sessions)
+    bodies = client.app.state.content_body_repository
+    source = {
+        "id": "editor-published-quiz", "name": "Published Quiz",
+        "moderation": {
+            "owner_id": teacher_id, "status": "published", "visibility": "public",
+        },
+    }
+    assert metadata.import_quiz(source, "editor-published-quiz.json")
+    assert bodies.import_quiz({
+        "id": source["id"], "questions": [{
+            "id": "question-1", "type": "short_answer",
+            "question": "Original", "answer": "Answer",
+        }],
+    })
+
+    http_user = _adapter_for(client)
+    assert http_user.authenticate("editor.published.teacher", "password1")
+    controller = QuizEditorController(
+        teacher_id, "teacher", user_repository=http_user,
+    )
+    assert controller.get_quiz_entries()
+    assert controller.load_quiz("Published Quiz")
+    changed = [{
+        "id": "question-1", "type": "short_answer",
+        "question": "Changed", "answer": "Updated",
+    }]
+
+    assert controller.save_quiz(
+        changed, {"question-1"}, "public",
+        {"attempt_limit": 3, "passing_grade_percent": 70},
+    )
+    current = metadata.get_by_id("quiz", source["id"])
+    assert current["status"] == "pending_review"
+    assert current["visibility"] == "public"
+    assert current["test_settings"]["attempt_limit"] == 3
+    assert bodies.get_quiz(source["id"])["questions"][0]["question"] == "Changed"
+
+
+def test_quiz_body_api_preserves_authorization_redaction_and_all_types(identity_api):
+    client, users, sessions = identity_api
+    teacher = _register(client, "quiz.body.teacher")
+    student = _register(client, "quiz.body.student")
+    outsider = _register(client, "quiz.body.outsider")
+    admin = _register(client, "quiz.body.admin")
+    assert users.update_role(teacher["user"]["id"], "teacher")
+    assert users.update_role(admin["user"]["id"], "admin")
+    metadata = PostgresContentMetadataRepository(sessions)
+    classes = PostgresClassRepository(sessions)
+    bodies = client.app.state.content_body_repository
+
+    public_source = {
+        "id": "all-types-public", "name": "All Types Public",
+        "moderation": {
+            "owner_id": teacher["user"]["id"], "status": "published",
+            "visibility": "public",
+        },
+    }
+    class_source = {
+        "id": "all-types-class", "name": "All Types Class",
+        "moderation": {
+            "owner_id": teacher["user"]["id"], "status": "published",
+            "visibility": "class_only", "invite": {"code": "QUIZ-BODY2"},
+            "enrollments": {student["user"]["id"]: {}},
+        },
+    }
+    assert metadata.import_quiz(public_source, "all-types-public.json")
+    assert metadata.import_quiz(class_source, "all-types-class.json")
+    assert classes.import_content_access(class_source, "quiz")
+    questions = [
+        {"id": "single", "question": "Single", "type": "single_choice",
+         "choices": ["A", "B"], "answer": "B"},
+        {"id": "multiple", "question": "Multiple", "type": "multiple_choice",
+         "choices": ["A", "B", "C"], "answer": ["A", "C"]},
+        {"id": "boolean", "question": "Boolean", "type": "true_false",
+         "answer": True},
+        {"id": "short", "question": "Short", "type": "short_answer",
+         "answer": ["one", "two"]},
+        {"id": "matching", "question": "Matching", "type": "matching",
+         "pairs": [{"prompt": "P", "answer": "A"}]},
+        {"id": "ordering", "question": "Ordering", "type": "ordering",
+         "answer": ["first", "second"]},
+    ]
+    for quiz_id in (public_source["id"], class_source["id"]):
+        assert bodies.import_quiz({"id": quiz_id, "questions": questions})
+
+    def headers(registration):
+        return {"Authorization": f"Bearer {registration['access_token']}"}
+
+    owner_body = client.get(
+        f"/api/v1/content/bodies/quiz/{public_source['id']}",
+        headers=headers(teacher),
+    ).json()
+    admin_body = client.get(
+        f"/api/v1/content/bodies/quiz/{class_source['id']}",
+        headers=headers(admin),
+    ).json()
+    student_public = client.get(
+        f"/api/v1/content/bodies/quiz/{public_source['id']}",
+        headers=headers(student),
+    ).json()
+    student_class = client.get(
+        f"/api/v1/content/bodies/quiz/{class_source['id']}",
+        headers=headers(student),
+    ).json()
+
+    assert [row["id"] for row in owner_body["questions"]] == [
+        row["id"] for row in questions
+    ]
+    assert owner_body["questions"][0]["choices"] == ["A", "B"]
+    assert owner_body["questions"][3]["answer"] == ["one", "two"]
+    assert owner_body["questions"][4]["pairs"] == [{"prompt": "P", "answer": "A"}]
+    assert owner_body["questions"][5]["answer"] == ["first", "second"]
+    assert admin_body["questions"] == owner_body["questions"]
+    for redacted in (student_public, student_class):
+        assert all("answer" not in row for row in redacted["questions"])
+        assert redacted["questions"][0]["choices"] == ["A", "B"]
+        assert redacted["questions"][4]["pairs"] == [
+            {"prompt": "P", "answer": None},
+        ]
+
+    assert client.get(
+        f"/api/v1/content/bodies/quiz/{class_source['id']}",
+        headers=headers(outsider),
+    ).status_code in {403, 404}
+    assert classes.remove_member(
+        "quiz", class_source["id"], teacher["user"]["id"], "teacher",
+        student["user"]["id"],
+    )[0]
+    assert client.get(
+        f"/api/v1/content/bodies/quiz/{class_source['id']}",
+        headers=headers(student),
+    ).status_code in {403, 404}
+
+    public_source["moderation"]["status"] = "draft"
+    assert metadata.import_quiz(public_source, "all-types-public.json")
+    assert client.get(
+        f"/api/v1/content/bodies/quiz/{public_source['id']}",
+        headers=headers(student),
+    ).status_code in {403, 404}
+    assert bodies.import_quiz({
+        "id": public_source["id"], "questions": [
+            {"id": "changed", "question": "Changed", "type": "short_answer",
+             "answer": "new"},
+        ],
+    })
+    assert client.get(
+        f"/api/v1/content/bodies/quiz/{public_source['id']}",
+        headers=headers(teacher),
+    ).json()["questions"][0]["id"] == "changed"
+
+
+def test_flashcard_body_api_preserves_visibility_roles_and_immediate_consistency(identity_api):
+    client, users, sessions = identity_api
+    teacher = _register(client, "deck.body.teacher")
+    student = _register(client, "deck.body.student")
+    outsider = _register(client, "deck.body.outsider")
+    admin = _register(client, "deck.body.admin")
+    assert users.update_role(teacher["user"]["id"], "teacher")
+    assert users.update_role(admin["user"]["id"], "admin")
+    metadata = PostgresContentMetadataRepository(sessions)
+    classes = PostgresClassRepository(sessions)
+    bodies = client.app.state.content_body_repository
+
+    public_source = {
+        "id": "deck-body-public", "name": "Deck Body Public",
+        "moderation": {
+            "owner_id": teacher["user"]["id"], "status": "published",
+            "visibility": "public",
+        },
+    }
+    class_source = {
+        "id": "deck-body-class", "name": "Deck Body Class",
+        "moderation": {
+            "owner_id": teacher["user"]["id"], "status": "published",
+            "visibility": "class_only", "invite": {"code": "DECK-BODY2"},
+            "enrollments": {student["user"]["id"]: {}},
+        },
+    }
+    assert metadata.import_flashcard_deck(public_source, "deck-body-public.json")
+    assert metadata.import_flashcard_deck(class_source, "deck-body-class.json")
+    assert classes.import_content_access(class_source, "flashcard")
+    cards = [{
+        "id": "card-2", "front": "Second", "back": "Answer 2",
+        "hint": "Hint 2", "description": "Description 2",
+        "image": "second.png", "audio": {"front": "second-front.mp3"},
+    }, {
+        "id": "card-1", "front": "First", "back": "Answer 1",
+        "hint": "Hint 1", "description": "Description 1",
+        "audio": {"back": "first-back.mp3"},
+    }]
+    for deck_id in (public_source["id"], class_source["id"]):
+        assert bodies.import_flashcard_deck({"id": deck_id, "cards": cards})
+
+    def headers(registration):
+        return {"Authorization": f"Bearer {registration['access_token']}"}
+
+    def get(deck_id, registration):
+        return client.get(
+            f"/api/v1/content/bodies/flashcard/{deck_id}",
+            headers=headers(registration),
+        )
+
+    owner_body = get(public_source["id"], teacher).json()
+    admin_body = get(class_source["id"], admin).json()
+    student_public = get(public_source["id"], student).json()
+    student_class = get(class_source["id"], student).json()
+    assert [row["id"] for row in owner_body["cards"]] == ["card-2", "card-1"]
+    assert owner_body["cards"][0]["back"] == "Answer 2"
+    assert owner_body["cards"][0]["hint"] == "Hint 2"
+    assert owner_body["cards"][0]["description"] == "Description 2"
+    assert owner_body["cards"][0]["image"]
+    assert owner_body["cards"][0]["audio"]["front"]
+    # Flashcard backs are study content, so the existing representation is the
+    # same for authorized students, owners, and administrators.
+    assert student_public["cards"] == owner_body["cards"]
+    assert student_class["cards"] == admin_body["cards"]
+    assert get(class_source["id"], outsider).status_code in {403, 404}
+
+    assert classes.remove_member(
+        "flashcard", class_source["id"], teacher["user"]["id"], "teacher",
+        student["user"]["id"],
+    )[0]
+    assert get(class_source["id"], student).status_code in {403, 404}
+
+    public_source["moderation"]["status"] = "draft"
+    assert metadata.import_flashcard_deck(public_source, "deck-body-public.json")
+    assert get(public_source["id"], student).status_code in {403, 404}
+    assert get(public_source["id"], teacher).status_code == 200
+
+    public_source["moderation"]["status"] = "published"
+    public_source["name"] = "Renamed Deck"
+    assert metadata.import_flashcard_deck(public_source, "deck-body-public.json")
+    assert bodies.import_flashcard_deck({
+        "id": public_source["id"], "cards": [{
+            "id": "changed", "front": "Changed front", "back": "Changed back",
+        }],
+    })
+    changed = get(public_source["id"], student)
+    assert changed.status_code == 200
+    assert changed.json()["name"] == "Renamed Deck"
+    assert changed.json()["cards"] == [{
+        "id": "changed", "front": "Changed front", "back": "Changed back",
+        "hint": "", "description": "", "image": "", "audio": {},
+    }]
+
+    assert metadata.delete_for_actor(
+        "flashcard", public_source["id"], teacher["user"]["id"], "teacher",
+    )
+    assert get(public_source["id"], teacher).status_code in {403, 404}
+
+
+def test_content_delete_distinguishes_owner_forbidden_and_missing(identity_api):
+    client, users, sessions = identity_api
+    owner = _register(client, "delete.owner")
+    other = _register(client, "delete.other")
+    assert users.update_role(owner["user"]["id"], "teacher")
+    assert users.update_role(other["user"]["id"], "teacher")
+    metadata = PostgresContentMetadataRepository(sessions)
+    assert metadata.import_quiz({
+        "id": "delete-quiz", "name": "Delete Quiz",
+        "moderation": {"owner_id": owner["user"]["id"], "status": "draft",
+                       "visibility": "private"},
+    }, "delete-quiz.json")
+    owner_headers = {"Authorization": f"Bearer {owner['access_token']}"}
+    other_headers = {"Authorization": f"Bearer {other['access_token']}"}
+
+    assert client.delete(
+        "/api/v1/content/metadata/quiz/delete-quiz", headers=other_headers,
+    ).status_code == 403
+    assert client.delete(
+        "/api/v1/content/metadata/quiz/missing", headers=owner_headers,
+    ).status_code == 404
+    assert client.delete(
+        "/api/v1/content/metadata/quiz/delete-quiz", headers=owner_headers,
+    ).status_code == 200
 
 
 def test_desktop_domain_repositories_complete_remote_content_workflow(identity_api, monkeypatch):

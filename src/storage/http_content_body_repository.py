@@ -29,4 +29,7 @@ class HttpContentBodyRepository:
             "PUT", f"/api/v1/content/bodies/{kind}/{content_id}",
             source, authenticated=True,
         )
-        return dict(body) if status == 200 and isinstance(body, dict) else None
+        if status == 200 and isinstance(body, dict):
+            self.user_repository._content_metadata_cache = {}
+            return dict(body)
+        return None

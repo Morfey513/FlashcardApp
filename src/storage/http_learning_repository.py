@@ -13,6 +13,33 @@ class HttpLearningRepository:
             return dict(body.get("progress") or {})
         return {}
 
+    def get_progress_items(self, kind, content_id):
+        status, body = self.user_repository._request(
+            "GET",
+            f"/api/v1/progress/{kind}/{content_id}?include_items=true",
+            authenticated=True,
+        )
+        return dict(body) if status == 200 and isinstance(body, dict) else {
+            "progress": {}, "items": [],
+            "summary": {"mastered": 0, "total": 0, "percent": 0,
+                        "has_progress": False},
+        }
+
+    def get_progress_summary(self, *, refresh=False):
+        del refresh
+        status, body = self.user_repository._request(
+            "GET", "/api/v1/progress/summary?include_items=true",
+            authenticated=True,
+        )
+        result = dict(body) if status == 200 and isinstance(body, dict) else {
+            "collections": [],
+            "summary": {
+                "flashcards": {"mastered": 0, "total": 0},
+                "quizzes": {"mastered": 0, "total": 0},
+            },
+        }
+        return result
+
     def save_progress(self, kind, content_id, progress):
         status, _body = self.user_repository._request(
             "PUT", f"/api/v1/progress/{kind}/{content_id}",

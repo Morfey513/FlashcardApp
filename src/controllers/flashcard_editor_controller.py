@@ -36,6 +36,7 @@ class FlashcardEditorController:
         self.current_deck_info = None
         self.current_cards = []
         self.has_unsaved_changes = False
+        self._editable_by_name = {}
 
     def get_deck_names(self):
         return [d["name"] for d in self._editable_decks()]
@@ -43,11 +44,13 @@ class FlashcardEditorController:
     def get_deck_entries(self):
         """Editable deck rows with their lifecycle status."""
         metadata = {item["file"]: item for item in self._moderation_items()}
-        return [
+        rows = [
             {**deck, "status": metadata[deck["file"]]["status"],
              "visibility": metadata[deck["file"]].get("visibility", "private")}
             for deck in self._editable_decks()
         ]
+        self._editable_by_name = {row["name"]: row for row in rows}
+        return rows
 
     def get_current_moderation(self):
         if not self.current_deck_info:
@@ -83,8 +86,10 @@ class FlashcardEditorController:
         )
 
     def load_deck(self, name):
-        decks = self._editable_decks()
-        self.current_deck_info = next((d for d in decks if d["name"] == name), None)
+        self.current_deck_info = self._editable_by_name.get(name)
+        if self.current_deck_info is None:
+            decks = self._editable_decks()
+            self.current_deck_info = next((d for d in decks if d["name"] == name), None)
         if self.current_deck_info:
             self.current_cards = self.repo.load_deck_cards(self.current_deck_info["file"])
             self.has_unsaved_changes = False
@@ -107,14 +112,28 @@ class FlashcardEditorController:
 
             # 2. Persist the JSON file
             rel_path = self.current_deck_info["file"]
-            self.repo.save_deck_content(
+            saved = self.repo.save_deck_content(
                 rel_path, cards, actor_id=self.owner_id, actor_role=self.role
             )
+            # Legacy JSON repositories return None after a successful write;
+            # HTTP repositories return an explicit boolean.
+            if saved is False:
+                return False
             status = visibility_submission_status(visibility)
-            self.moderation.set_content_status(
-                rel_path, "flashcard", status, self.owner_id, visibility=visibility,
-                actor_role=self.role,
-            )
+            current = self.current_deck_info
+            if current.get("source_path"):
+                moderated = self.moderation.update_status(
+                    current, status, self.owner_id, visibility=visibility,
+                    actor_role=self.role,
+                )
+            else:
+                moderated = self.moderation.set_content_status(
+                    rel_path, "flashcard", status, self.owner_id,
+                    visibility=visibility, actor_role=self.role,
+                )
+            if not moderated:
+                return False
+            current.update({"status": status, "visibility": visibility})
 
             # 3. Progress Cleanup: Remove mastery data for cards that no longer exist
             valid_ids = {c['id'] for c in cards}
@@ -175,25 +194,47 @@ class FlashcardEditorController:
 
     def delete_deck(self, name):
         """Delete a deck permanently."""
-        deck = next((item for item in self._editable_decks() if item["name"] == name), None)
+        return self.delete_deck_result(name)["status"] == "deleted"
+
+    def delete_deck_result(self, name):
+        """Delete a deck while preserving an HTTP failure category for the UI."""
+        deck = self._editable_by_name.get(name)
+        if deck is None:
+            deck = next((item for item in self._editable_decks() if item["name"] == name), None)
         if not deck or not can_edit_content(
             self.role,
             self._owner_for(deck) == self.owner_id,
         ):
-            return False
-        return self.repo.delete_deck_permanently(name)
+            return {"status": "forbidden", "status_code": None}
+        delete_item = getattr(self.repo, "delete_deck_item_result", None)
+        if callable(delete_item):
+            return delete_item(deck)
+        delete_result = getattr(self.repo, "delete_deck_result", None)
+        if callable(delete_result):
+            return delete_result(name)
+        return {
+            "status": "deleted" if self.repo.delete_deck_permanently(name) else "failed",
+            "status_code": None,
+        }
 
     def copy_deck(self, original_name, new_name):
         """Copy a deck with new IDs."""
-        deck = next(
-            (item for item in self._editable_decks() if item["name"] == original_name),
-            None,
-        )
+        deck = self._editable_by_name.get(original_name)
+        if deck is None:
+            deck = next(
+                (item for item in self._editable_decks() if item["name"] == original_name),
+                None,
+            )
         if not deck or not can_edit_content(
             self.role,
             self._owner_for(deck) == self.owner_id,
         ):
             return False
+        copy_item = getattr(self.repo, "copy_deck_item", None)
+        if callable(copy_item):
+            return copy_item(
+                deck, new_name, self.owner_id, actor_role=self.role
+            )
         return self.repo.copy_deck(
             original_name, new_name, self.owner_id, actor_role=self.role
         )
@@ -204,6 +245,8 @@ class FlashcardEditorController:
         return self.repo.get_edit_history(self.current_deck_info["file"])
 
     def _owner_for(self, deck):
+        if deck.get("owner_id") is not None:
+            return str(deck["owner_id"])
         item = next(
             (entry for entry in self._moderation_items() if entry["file"] == deck["file"]),
             {},
@@ -219,10 +262,20 @@ class FlashcardEditorController:
             if item["kind"] == "flashcard"
             and (self.role == "admin" or str(item["owner_id"]) == self.owner_id)
         }
-        return [deck for deck in self.repo.get_all_decks() if deck["file"] in allowed]
+        owned_items = getattr(self.repo, "get_owned_content_items", None)
+        if self.role == "teacher" and callable(owned_items):
+            rows = [{**item, "file": item["file"]} for item in items]
+        else:
+            rows = (self.repo.get_owned_decks()
+                    if hasattr(self.repo, "get_owned_decks")
+                    else self.repo.get_all_decks())
+        return [deck for deck in rows if deck["file"] in allowed]
 
     def _moderation_items(self):
-        return self.moderation.get_all_content()
+        owned_items = getattr(self.repo, "get_owned_content_items", None)
+        if self.role == "teacher" and callable(owned_items):
+            return owned_items()
+        return self.moderation.get_all_content(kind="flashcard")
 
     # =========================================================
     # PATH HELPERS (Business Logic)

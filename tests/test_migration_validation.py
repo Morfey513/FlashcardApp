@@ -142,7 +142,7 @@ def test_validation_rejects_unsafe_database_urls(database_url, message):
 )
 def test_content_revision_imports_against_postgresql():
     """Exercise Phase 6A body revision idempotence on real PostgreSQL."""
-    from sqlalchemy import create_engine, delete, select
+    from sqlalchemy import create_engine, delete, event, select
     from sqlalchemy.orm import sessionmaker
 
     from src.logic.passwords import PasswordHasher
@@ -188,6 +188,23 @@ def test_content_revision_imports_against_postgresql():
         assert bodies.import_flashcard_deck(deck)
         assert bodies.import_flashcard_deck(deck)
         assert metadata.get_by_id("flashcard", deck_id)["content_version"] == 2
+
+        statements = []
+        def record_statement(*_args):
+            statements.append(_args[2])
+        event.listen(engine, "before_cursor_execute", record_statement)
+        try:
+            assert bodies.get_quiz_progress_items(quiz_id) == [
+                {"id": "q1", "text": "Question"}
+            ]
+            assert len(statements) == 1
+            statements.clear()
+            assert bodies.get_flashcard_progress_items(deck_id) == [
+                {"id": "c1", "text": "F"}
+            ]
+            assert len(statements) == 1
+        finally:
+            event.remove(engine, "before_cursor_execute", record_statement)
     finally:
         with sessions.begin() as session:
             session.execute(delete(QuizMetadataModel).where(QuizMetadataModel.id == quiz_id))

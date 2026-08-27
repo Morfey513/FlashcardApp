@@ -20,11 +20,19 @@ class HttpClassRepository:
         return False, str(detail)
 
     def get_owned_classes(self, _owner_id=None, kind="all"):
+        key = str(kind)
+        cache = getattr(self.user_repository, "_owned_classes_cache", {})
+        if key in cache:
+            return [dict(item) for item in cache[key]]
         query = "" if kind == "all" else f"?{urlencode({'kind': kind})}"
         status, body = self.user_repository._request(
             "GET", f"/api/v1/classes/owned{query}", authenticated=True
         )
-        return [dict(item) for item in body] if status == 200 and isinstance(body, list) else []
+        result = [dict(item) for item in body] if status == 200 and isinstance(body, list) else []
+        if status == 200 and isinstance(body, list):
+            cache[key] = [dict(item) for item in result]
+            self.user_repository._owned_classes_cache = cache
+        return result
 
     def get_invitation(self, relative_path, kind):
         content_id = self._content_id(relative_path)

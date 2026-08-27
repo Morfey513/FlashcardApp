@@ -45,6 +45,7 @@ class FlashcardEditor(QWidget):
 
         self.retranslate_ui()
         self.stack.setCurrentWidget(self.deck_menu_panel)
+        self.refresh_deck_list()
         logger.info("Flashcard Editor initialized.")
 
     def retranslate_ui(self):
@@ -132,7 +133,6 @@ class FlashcardEditor(QWidget):
         layout.addWidget(self.back_to_main_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.stack.addWidget(self.deck_menu_panel)
-        self.refresh_deck_list()
 
     def init_deck_editor_panel(self):
         self.deck_editor_panel = QFrame()
@@ -508,8 +508,20 @@ class FlashcardEditor(QWidget):
         )
 
         if ret == QMessageBox.StandardButton.Yes:
-            if self.controller.delete_deck(deck_name):
+            delete_result = getattr(self.controller, "delete_deck_result", None)
+            result = (
+                delete_result(deck_name) if callable(delete_result)
+                else {"status": "deleted" if self.controller.delete_deck(deck_name) else "failed"}
+            )
+            outcome = result.get("status")
+            if outcome in {"deleted", "not_found"}:
                 self.refresh_deck_list()
+            if outcome == "not_found":
+                QMessageBox.information(self, "Deck not found", "This deck no longer exists.")
+            elif outcome == "forbidden":
+                QMessageBox.warning(self, "Deletion rejected", "You are not authorized to delete this deck.")
+            elif outcome != "deleted":
+                QMessageBox.warning(self, "Delete failed", "The deck could not be deleted.")
 
     def open_deck_editor(self, deck_name):
         t = self.translator

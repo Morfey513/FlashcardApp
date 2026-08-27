@@ -24,12 +24,17 @@ class ModerationRepository:
         self.flashcards = flashcards or FlashcardRepository()
         self.quizzes = quizzes or QuizRepository()
 
-    def get_all_content(self):
+    def get_all_content(self, kind=None):
         items = []
-        for kind, repo, entries, resolver in (
-            ("flashcard", self.flashcards, self.flashcards.get_all_decks(), self.flashcards.resolve_path),
-            ("quiz", self.quizzes, self.quizzes.get_all_quizzes(), self.quizzes._resolve_path),
-        ):
+        sources = (
+            ("flashcard", self.flashcards, "get_all_decks", "resolve_path"),
+            ("quiz", self.quizzes, "get_all_quizzes", "_resolve_path"),
+        )
+        for content_kind, repo, entries_method, resolver_method in sources:
+            if kind is not None and content_kind != kind:
+                continue
+            entries = getattr(repo, entries_method)()
+            resolver = getattr(repo, resolver_method)
             remote_loader = getattr(repo, "get_content_items", None)
             if callable(remote_loader):
                 items.extend(remote_loader())
@@ -40,8 +45,8 @@ class ModerationRepository:
                 metadata, changed = self._metadata(data)
                 if changed:
                     file.write_text(json.dumps(data, indent=4), encoding="utf-8")
-                item = {"kind": kind, "name": entry["name"], "file": entry["file"], "path": file, **metadata}
-                if kind == "quiz":
+                item = {"kind": content_kind, "name": entry["name"], "file": entry["file"], "path": file, **metadata}
+                if content_kind == "quiz":
                     from src.logic.test_settings import normalize_test_settings
                     item["test_settings"] = normalize_test_settings(data.get("test_settings"))
                 items.append(item)
@@ -95,7 +100,7 @@ class ModerationRepository:
             item, status, actor_id, note, visibility, actor_role=actor_role
         ))
 
-    def get_content_for_user(self, user_id, role):
+    def get_content_for_user(self, user_id, role, kind=None):
         """Return only content that may be opened in a study session.
 
         Moderation data remains visible in the admin dashboard, but drafts,
@@ -103,7 +108,7 @@ class ModerationRepository:
         deck or quiz picker.  Owners may preview their own non-banned work.
         """
         visible = []
-        for item in self.get_all_content():
+        for item in self.get_all_content(kind):
             if role == "admin":
                 visible.append(item)
                 continue
@@ -120,7 +125,7 @@ class ModerationRepository:
                 visible.append(item)
         return visible
 
-    def get_content_for_selector(self, user_id, role):
+    def get_content_for_selector(self, user_id, role, kind=None):
         """Return content for a learner's picker, including the owner's locked work.
 
         Draft, rejected, and banned items are private to their creator in the
@@ -130,7 +135,7 @@ class ModerationRepository:
         and reason in order to understand the action.
         """
         visible = []
-        for item in self.get_all_content():
+        for item in self.get_all_content(kind):
             if str(item["owner_id"]) == str(user_id):
                 visible.append(item)
                 continue

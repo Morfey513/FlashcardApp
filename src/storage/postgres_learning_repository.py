@@ -5,17 +5,22 @@ import random
 from datetime import datetime, timezone
 from uuid import NAMESPACE_URL, uuid5
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, func, literal, or_, select, union_all
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from src.storage.database import create_session_factory
 from src.storage.postgres_models import (
     FlashcardDeckMetadataModel,
+    FlashcardModel,
     FlashcardProgressModel,
+    ClassFlashcardDeckModel,
+    ClassMemberModel,
+    ClassQuizModel,
     QuizAttemptAnswerModel,
     QuizAttemptModel,
     QuizAttemptQuestionModel,
     QuizMetadataModel,
+    QuizQuestionModel,
     QuizQuestionProgressModel,
     UserModel,
 )
@@ -266,6 +271,142 @@ class PostgresLearningRepository:
         return self._get_progress(
             QuizQuestionProgressModel, "quiz_id", str(quiz_id), str(user_id), "question_id"
         )
+
+    def get_progress_summary(
+        self, user_id: str, actor_role: str = "student", *, include_items: bool = True,
+    ) -> dict:
+        """Return every currently available quiz/deck progress row in one query."""
+        user_id = str(user_id)
+        if not self._authenticated_user(user_id):
+            return self._empty_progress_summary()
+
+        def available(metadata, class_link, content_column):
+            if str(actor_role).casefold() == "admin":
+                return literal(True)
+            enrolled_content = select(content_column).select_from(class_link).join(
+                ClassMemberModel,
+                ClassMemberModel.class_id == class_link.class_id,
+            ).where(
+                ClassMemberModel.user_id == user_id,
+                ClassMemberModel.status == "active",
+            )
+            return or_(
+                metadata.owner_id == user_id,
+                and_(
+                    metadata.lifecycle == "published",
+                    or_(metadata.visibility == "public", metadata.id.in_(enrolled_content)),
+                ),
+            )
+
+        quiz_rows = select(
+            literal("quiz").label("kind"), QuizMetadataModel.id.label("content_id"),
+            QuizMetadataModel.name.label("content_name"),
+            QuizQuestionModel.question_id.label("item_id"),
+            QuizQuestionModel.question_text.label("item_text"),
+            QuizQuestionModel.position.label("position"),
+            func.coalesce(QuizQuestionProgressModel.correct_count, 0).label("correct"),
+            func.coalesce(QuizQuestionProgressModel.wrong_count, 0).label("wrong"),
+            func.coalesce(QuizQuestionProgressModel.mastered, False).label("mastered"),
+            QuizQuestionProgressModel.user_id.is_not(None).label("has_progress"),
+        ).select_from(QuizMetadataModel).outerjoin(
+            QuizQuestionModel, QuizQuestionModel.quiz_id == QuizMetadataModel.id,
+        ).outerjoin(
+            QuizQuestionProgressModel,
+            and_(
+                QuizQuestionProgressModel.quiz_id == QuizMetadataModel.id,
+                QuizQuestionProgressModel.question_id == QuizQuestionModel.question_id,
+                QuizQuestionProgressModel.user_id == user_id,
+            ),
+        ).where(available(QuizMetadataModel, ClassQuizModel, ClassQuizModel.quiz_id))
+
+        deck_rows = select(
+            literal("flashcard").label("kind"),
+            FlashcardDeckMetadataModel.id.label("content_id"),
+            FlashcardDeckMetadataModel.name.label("content_name"),
+            FlashcardModel.card_id.label("item_id"),
+            FlashcardModel.front_text.label("item_text"),
+            FlashcardModel.position.label("position"),
+            func.coalesce(FlashcardProgressModel.correct_count, 0).label("correct"),
+            func.coalesce(FlashcardProgressModel.wrong_count, 0).label("wrong"),
+            func.coalesce(FlashcardProgressModel.mastered, False).label("mastered"),
+            FlashcardProgressModel.user_id.is_not(None).label("has_progress"),
+        ).select_from(FlashcardDeckMetadataModel).outerjoin(
+            FlashcardModel, FlashcardModel.deck_id == FlashcardDeckMetadataModel.id,
+        ).outerjoin(
+            FlashcardProgressModel,
+            and_(
+                FlashcardProgressModel.deck_id == FlashcardDeckMetadataModel.id,
+                FlashcardProgressModel.card_id == FlashcardModel.card_id,
+                FlashcardProgressModel.user_id == user_id,
+            ),
+        ).where(available(
+            FlashcardDeckMetadataModel,
+            ClassFlashcardDeckModel,
+            ClassFlashcardDeckModel.deck_id,
+        ))
+
+        statement = select(union_all(quiz_rows, deck_rows).subquery()).order_by(
+            "kind", "content_name", "content_id", "position"
+        )
+        try:
+            with self.session_factory() as session:
+                rows = session.execute(statement).mappings().all()
+        except SQLAlchemyError as exc:
+            logger.error("Could not load PostgreSQL progress summary: %s", exc)
+            return self._empty_progress_summary()
+
+        collections = []
+        by_key = {}
+        for row in rows:
+            key = (row["kind"], row["content_id"])
+            collection = by_key.get(key)
+            if collection is None:
+                collection = {
+                    "kind": row["kind"], "id": row["content_id"],
+                    "name": row["content_name"], "items": [],
+                    "summary": {"mastered": 0, "total": 0, "percent": 0,
+                                "has_progress": False},
+                }
+                by_key[key] = collection
+                collections.append(collection)
+            if row["item_id"] is None:
+                continue
+            item = {
+                "id": row["item_id"], "text": str(row["item_text"] or "Untitled"),
+                "mastered": bool(row["mastered"]), "correct": int(row["correct"]),
+                "wrong": int(row["wrong"]),
+            }
+            if include_items:
+                collection["items"].append(item)
+            summary = collection["summary"]
+            summary["total"] += 1
+            summary["mastered"] += int(item["mastered"])
+            summary["has_progress"] = summary["has_progress"] or bool(row["has_progress"])
+
+        totals = {
+            "flashcards": {"mastered": 0, "total": 0},
+            "quizzes": {"mastered": 0, "total": 0},
+        }
+        for collection in collections:
+            summary = collection["summary"]
+            summary["percent"] = (
+                round(summary["mastered"] / summary["total"] * 100)
+                if summary["total"] else 0
+            )
+            bucket = totals["quizzes" if collection["kind"] == "quiz" else "flashcards"]
+            bucket["mastered"] += summary["mastered"]
+            bucket["total"] += summary["total"]
+        return {"collections": collections, "summary": totals}
+
+    @staticmethod
+    def _empty_progress_summary():
+        return {
+            "collections": [],
+            "summary": {
+                "flashcards": {"mastered": 0, "total": 0},
+                "quizzes": {"mastered": 0, "total": 0},
+            },
+        }
 
     def import_quiz_attempt(self, source: dict) -> bool:
         attempt_id = str(source.get("id", "")).strip()

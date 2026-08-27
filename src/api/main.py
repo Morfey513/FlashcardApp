@@ -402,6 +402,9 @@ def create_app(
         user: Annotated[dict, Depends(current_user)],
     ):
         try:
+            existing = request.app.state.content_repository.get_by_id(kind, content_id)
+            if existing is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Content was not found")
             deleted = request.app.state.content_repository.delete_for_actor(
                 kind, content_id, user["id"], user["role"]
             )
@@ -517,9 +520,16 @@ def create_app(
         kind: str, content_id: str, request: Request,
         user: Annotated[dict, Depends(current_user)],
     ):
-        classes = request.app.state.class_repository.get_owned_classes(
-            user["id"], kind
-        )
+        repository = request.app.state.class_repository
+        direct_lookup = getattr(repository, "get_invitation", None)
+        if callable(direct_lookup):
+            code = direct_lookup(kind, content_id, user["id"], user["role"])
+            if code is None:
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN, "Invitation access is not permitted"
+                )
+            return {"code": code}
+        classes = repository.get_owned_classes(user["id"], kind)
         item = next((row for row in classes if row["content_id"] == content_id), None)
         if item is None:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Invitation access is not permitted")
@@ -544,23 +554,75 @@ def create_app(
             raise HTTPException(status.HTTP_403_FORBIDDEN, message)
         return {"message": message}
 
+    @app.get("/api/v1/progress/summary", tags=["learning"])
+    def learning_progress_summary(
+        request: Request, user: Annotated[dict, Depends(current_user)],
+        include_items: bool = True,
+    ):
+        return request.app.state.learning_repository.get_progress_summary(
+            user["id"], user["role"], include_items=include_items,
+        )
+
     @app.get("/api/v1/progress/{kind}/{content_id}", tags=["learning"])
     def learning_progress(
         kind: str, content_id: str, request: Request,
         user: Annotated[dict, Depends(current_user)],
+        include_items: bool = False,
     ):
         available_content(request, user, kind, content_id)
         if kind == "quiz":
             progress = request.app.state.learning_repository.get_quiz_progress(
                 content_id, user["id"]
             )
+            if include_items:
+                bodies = request.app.state.content_body_repository
+                if hasattr(bodies, "get_quiz_progress_items"):
+                    sources = bodies.get_quiz_progress_items(content_id)
+                    text_key = "text"
+                else:
+                    body = bodies.get_quiz(content_id, include_answers=False) or {}
+                    sources = body.get("questions") or []
+                    text_key = "question"
         elif kind in {"flashcard", "deck", "flashcard_deck"}:
             progress = request.app.state.learning_repository.get_flashcard_progress(
                 content_id, user["id"]
             )
+            if include_items:
+                bodies = request.app.state.content_body_repository
+                if hasattr(bodies, "get_flashcard_progress_items"):
+                    sources = bodies.get_flashcard_progress_items(content_id)
+                    text_key = "text"
+                else:
+                    body = bodies.get_flashcard_deck(content_id) or {}
+                    sources = body.get("cards") or []
+                    text_key = "front"
         else:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unsupported content kind")
-        return {"progress": progress}
+        response = {"progress": progress}
+        if include_items:
+            items = []
+            for source in sources:
+                item_id = str(source.get("id", ""))
+                saved = progress.get(item_id, {})
+                items.append({
+                    "id": item_id,
+                    "text": str(source.get(text_key) or "Untitled"),
+                    "mastered": bool(saved.get("mastered", False)),
+                    "correct": int(saved.get("correct", 0)),
+                    "wrong": int(saved.get("wrong", 0)),
+                })
+            mastered = sum(1 for item in items if item["mastered"])
+            total = len(items)
+            response.update({
+                "items": items,
+                "summary": {
+                    "mastered": mastered,
+                    "total": total,
+                    "percent": round(mastered / total * 100) if total else 0,
+                    "has_progress": bool(progress),
+                },
+            })
+        return response
 
     @app.put("/api/v1/progress/{kind}/{content_id}", tags=["learning"])
     def save_learning_progress(
