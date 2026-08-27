@@ -34,10 +34,15 @@ class PostgresContentBodyRepository:
                 metadata = session.get(QuizMetadataModel, quiz_id)
                 if metadata is None:
                     return False
+                previous = self._stored_quiz_canonical(session, quiz_id)
+                incoming = self._source_quiz_canonical(source)
+                changed = previous != incoming
                 self._delete_quiz_body(session, quiz_id)
                 for position, question in enumerate(questions):
                     if not self._add_question(session, metadata, question, position):
                         raise ValueError(f"Invalid question at position {position}")
+                if changed:
+                    metadata.content_version += 1
                 return True
         except (SQLAlchemyError, OSError, ValueError, TypeError) as exc:
             logger.error("Could not import quiz body '%s': %s", quiz_id, exc)
@@ -53,6 +58,9 @@ class PostgresContentBodyRepository:
                 metadata = session.get(FlashcardDeckMetadataModel, deck_id)
                 if metadata is None:
                     return False
+                previous = self._stored_deck_canonical(session, deck_id)
+                incoming = self._source_deck_canonical(source)
+                changed = previous != incoming
                 self._delete_deck_body(session, deck_id)
                 for position, card in enumerate(cards):
                     card_id = str(card.get("id", "")).strip()
@@ -83,7 +91,9 @@ class PostgresContentBodyRepository:
                     elif audio:
                         self._attach_flashcard_media(
                             session, metadata, deck_id, card_id, audio, "audio"
-                        )
+                                )
+                if changed:
+                    metadata.content_version += 1
                 return True
         except (SQLAlchemyError, OSError, ValueError, TypeError) as exc:
             logger.error("Could not import flashcard body '%s': %s", deck_id, exc)
@@ -100,6 +110,7 @@ class PostgresContentBodyRepository:
                 ).order_by(QuizQuestionModel.position)).all()
                 return {
                     "id": metadata.id, "name": metadata.name,
+                    "content_version": metadata.content_version,
                     "questions": [self._question_public(session, row, include_answers=include_answers) for row in rows],
                 }
         except SQLAlchemyError as exc:
@@ -117,6 +128,7 @@ class PostgresContentBodyRepository:
                 ).order_by(FlashcardModel.position)).all()
                 return {
                     "id": metadata.id, "name": metadata.name,
+                    "content_version": metadata.content_version,
                     "cards": [self._card_public(session, row) for row in rows],
                 }
         except SQLAlchemyError as exc:
@@ -220,6 +232,59 @@ class PostgresContentBodyRepository:
     def _delete_deck_body(session, deck_id):
         session.execute(delete(FlashcardMediaModel).where(FlashcardMediaModel.deck_id == deck_id))
         session.execute(delete(FlashcardModel).where(FlashcardModel.deck_id == deck_id))
+
+    def _stored_quiz_canonical(self, session, quiz_id):
+        rows = session.scalars(select(QuizQuestionModel).where(
+            QuizQuestionModel.quiz_id == quiz_id
+        ).order_by(QuizQuestionModel.position)).all()
+        return [self._canonical_question(self._question_public(session, row)) for row in rows]
+
+    @staticmethod
+    def _source_quiz_canonical(source):
+        return [PostgresContentBodyRepository._canonical_question(question) for question in source["questions"]]
+
+    @staticmethod
+    def _canonical_question(question):
+        result = {
+            "id": str(question.get("id", "")).strip(),
+            "question": str(question.get("question") or ""),
+            "type": str(question.get("type") or "").strip(),
+            "answer": question.get("answer"),
+            "choices": [str(value) for value in (question.get("choices") or [])],
+            "pairs": [
+                {"prompt": str(pair.get("prompt") or ""), "answer": str(pair.get("answer") or "")}
+                for pair in (question.get("pairs") or [])
+            ],
+            "image_path": to_stored_path(question.get("image_path") or question.get("image") or ""),
+        }
+        return result
+
+    def _stored_deck_canonical(self, session, deck_id):
+        rows = session.scalars(select(FlashcardModel).where(
+            FlashcardModel.deck_id == deck_id
+        ).order_by(FlashcardModel.position)).all()
+        return [self._canonical_card(self._card_public(session, row)) for row in rows]
+
+    @staticmethod
+    def _source_deck_canonical(source):
+        return [PostgresContentBodyRepository._canonical_card(card) for card in source["cards"]]
+
+    @staticmethod
+    def _canonical_card(card):
+        audio = card.get("audio") or {}
+        if isinstance(audio, dict):
+            audio = {str(role): to_stored_path(value or "") for role, value in sorted(audio.items())}
+        else:
+            audio = to_stored_path(audio)
+        return {
+            "id": str(card.get("id", "")).strip(),
+            "front": str(card.get("front") or ""),
+            "back": str(card.get("back") or ""),
+            "hint": str(card.get("hint") or ""),
+            "description": str(card.get("description") or ""),
+            "image": to_stored_path(card.get("image") or ""),
+            "audio": audio,
+        }
 
     @staticmethod
     def _question_public(session, row, *, include_answers: bool = True):

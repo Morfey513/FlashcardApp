@@ -100,6 +100,19 @@ def test_import_is_idempotent_and_updates_metadata_not_content_body(tmp_path):
     with sessions() as session:
         row = session.scalar(select(QuizMetadataModel))
         assert not hasattr(row, "questions")
+        assert row.content_version == 2
+    engine.dispose()
+
+
+def test_metadata_revision_starts_at_one_and_unchanged_import_is_idempotent(tmp_path):
+    repository, sessions, engine = _repository(tmp_path)
+    source = {"id": "quiz-1", "name": "Stable", "moderation": {
+        "owner_id": "teacher-1", "status": "published", "visibility": "public"}}
+    assert repository.import_quiz(source, "quiz.json")
+    assert repository.import_quiz(source, "quiz.json")
+    with sessions() as session:
+        row = session.scalar(select(QuizMetadataModel))
+        assert row.content_version == 1
     engine.dispose()
 
 

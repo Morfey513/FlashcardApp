@@ -47,6 +47,30 @@ class ContentLibrary:
             "body": self._read_json(entry / self.BODY),
         }
 
+    def update_state(self, kind: str, content_id: str, remote_version, user_id="guest"):
+        cached = self.get_downloaded(kind, content_id, user_id)
+        if cached is None:
+            return "not_downloaded"
+        if remote_version is None or cached.get("content_version") is None:
+            return "stale"
+        return "update_available" if int(remote_version) > int(cached["content_version"]) else "synchronized"
+
+    def refresh_download(self, kind: str, content_id: str, metadata: dict, body: dict, user_id="guest"):
+        cached = self.get_downloaded(kind, content_id, user_id)
+        if cached is None:
+            return False
+        if metadata.get("content_version") != body.get("content_version"):
+            raise ValueError("Content metadata and body revisions do not match")
+        self.store_download(
+            kind, content_id, body, name=metadata["name"],
+            visibility=metadata.get("visibility", cached.get("visibility", "public")),
+            owner_id=metadata.get("owner_id", cached.get("owner_id")),
+            allowed_account_ids=metadata.get("allowed_account_ids", cached.get("allowed_account_ids", [])),
+            content_version=metadata.get("content_version"),
+            remote_updated_at=metadata.get("updated_at"),
+        )
+        return True
+
     def list_downloaded(self, kind: str) -> list[dict]:
         """Return valid cached entries, including entries locked for this session."""
         return [
@@ -243,6 +267,7 @@ class _LibraryRepository:
             rows.append({
                 "id": item["content_id"], "name": item["name"],
                 "file": item["file"], "source": "downloaded",
+                "content_version": item["manifest"].get("content_version"),
             })
         return rows
 

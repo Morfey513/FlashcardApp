@@ -153,6 +153,19 @@ class PostgresContentMetadataRepository:
                     else None
                 )
                 item = session.get(model, content_id)
+                previous = None if item is None else {
+                    "name": item.name, "owner_id": item.owner_id,
+                    "source_owner_id": item.source_owner_id,
+                    "lifecycle": item.lifecycle, "visibility": item.visibility,
+                    "source_path": item.source_path,
+                    "test_settings": {
+                        "time_limit_minutes": item.time_limit_minutes,
+                        "passing_grade_percent": item.passing_grade_percent,
+                        "attempt_limit": item.attempt_limit,
+                        "due_at": item.due_at,
+                        "answer_review_policy": item.answer_review_policy,
+                    } if kind == "quiz" else None,
+                }
                 if item is None:
                     item = model(id=content_id)
                     session.add(item)
@@ -169,6 +182,22 @@ class PostgresContentMetadataRepository:
                     item.attempt_limit = settings["attempt_limit"]
                     item.due_at = self._parse_datetime(settings["due_at"])
                     item.answer_review_policy = settings["answer_review_policy"]
+                if previous is not None and any((
+                    previous["name"] != item.name,
+                    previous["owner_id"] != item.owner_id,
+                    previous["source_owner_id"] != item.source_owner_id,
+                    previous["lifecycle"] != item.lifecycle,
+                    previous["visibility"] != item.visibility,
+                    previous["source_path"] != item.source_path,
+                    kind == "quiz" and previous["test_settings"] != {
+                        "time_limit_minutes": item.time_limit_minutes,
+                        "passing_grade_percent": item.passing_grade_percent,
+                        "attempt_limit": item.attempt_limit,
+                        "due_at": item.due_at,
+                        "answer_review_policy": item.answer_review_policy,
+                    },
+                )):
+                    item.content_version += 1
                 return True
         except (SQLAlchemyError, ValueError, TypeError) as exc:
             logger.error("Could not import %s metadata '%s': %s", kind, content_id, exc)
@@ -196,6 +225,7 @@ class PostgresContentMetadataRepository:
             "source_path": item.source_path,
             "created_at": item.created_at.isoformat() if item.created_at else None,
             "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+            "content_version": item.content_version,
         }
         if kind == "quiz":
             result["test_settings"] = {

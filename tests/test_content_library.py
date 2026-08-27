@@ -83,6 +83,36 @@ def test_failed_replacement_keeps_previous_valid_entry(tmp_path, monkeypatch):
     assert repo.list("quiz")[0]["name"] == "Old"
 
 
+def test_refresh_compares_versions_and_preserves_old_package_on_failure(tmp_path, monkeypatch):
+    repo = library(tmp_path)
+    repo.store_download("quiz", "v1", {"id": "v1", "name": "Old", "questions": []},
+                        name="Old", content_version=1)
+    assert repo.update_state("quiz", "v1", 1) == "synchronized"
+    assert repo.update_state("quiz", "v1", 2) == "update_available"
+    assert repo.refresh_download("quiz", "v1", {"name": "New", "content_version": 2},
+                                {"id": "v1", "name": "New", "content_version": 2, "questions": []})
+    assert repo.get_downloaded("quiz", "v1")["body"]["name"] == "New"
+
+
+def test_refresh_rejects_body_revision_mismatch_and_can_retry(tmp_path, monkeypatch):
+    repo = library(tmp_path)
+    repo.store_download("quiz", "v1", {"id": "v1", "name": "Old", "questions": []},
+                        name="Old", content_version=1)
+    with pytest.raises(ValueError, match="revisions do not match"):
+        repo.refresh_download("quiz", "v1", {"name": "New", "content_version": 2},
+                              {"id": "v1", "name": "New", "content_version": 1, "questions": []})
+    assert repo.get_downloaded("quiz", "v1")["body"]["name"] == "Old"
+    assert repo.refresh_download("quiz", "v1", {"name": "New", "content_version": 2},
+                                {"id": "v1", "name": "New", "content_version": 2, "questions": []})
+    assert repo.get_downloaded("quiz", "v1")["body"]["name"] == "New"
+    original = repo._write_json
+    monkeypatch.setattr(repo, "_write_json", lambda path, value: (_ for _ in ()).throw(OSError("fail")) if path.name == repo.MANIFEST else original(path, value))
+    with pytest.raises(OSError):
+        repo.refresh_download("quiz", "v1", {"name": "Broken", "content_version": 3},
+                              {"id": "v1", "name": "Broken", "content_version": 3, "questions": []})
+    assert repo.get_downloaded("quiz", "v1")["body"]["name"] == "New"
+
+
 def test_remote_media_is_not_resolved_as_local_path():
     assert resolve_stored_path("https://cdn.example/media.png") is None
     assert ContentLibrary.resolve_media("https://cdn.example/media.png") is None

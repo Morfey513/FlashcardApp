@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy.engine import make_url
 
 
-REVISION_HEAD = "20260823_0007"
+REVISION_HEAD = "20260824_0008"
 TEST_DATABASE_NAME = "study_buddy_test"
 
 
@@ -55,6 +55,8 @@ def test_alembic_upgrade_downgrade_and_reupgrade(monkeypatch):
             inspector = inspect(connection)
             tables = set(inspector.get_table_names())
             assert {"users", "quizzes", "quiz_questions", "quiz_attempts", "quiz_attempt_questions"}.issubset(tables)
+            content_columns = {column["name"] for column in inspector.get_columns("quizzes")}
+            assert "content_version" in content_columns
 
             attempt_columns = {column["name"]: column for column in inspector.get_columns("quiz_attempts")}
             assert attempt_columns["assessment_snapshot"]["nullable"] is True
@@ -132,6 +134,66 @@ def test_validation_accepts_dedicated_postgresql_urls(database_url):
 def test_validation_rejects_unsafe_database_urls(database_url, message):
     with pytest.raises(ValueError, match=message):
         _validate_test_database_url(database_url)
+
+
+@pytest.mark.skipif(
+    not os.getenv("STUDY_BUDDY_TEST_DATABASE_URL"),
+    reason="set STUDY_BUDDY_TEST_DATABASE_URL to an isolated disposable PostgreSQL database",
+)
+def test_content_revision_imports_against_postgresql():
+    """Exercise Phase 6A body revision idempotence on real PostgreSQL."""
+    from sqlalchemy import create_engine, delete, select
+    from sqlalchemy.orm import sessionmaker
+
+    from src.logic.passwords import PasswordHasher
+    from src.storage.postgres_content_body_repository import PostgresContentBodyRepository
+    from src.storage.postgres_content_metadata_repository import PostgresContentMetadataRepository
+    from src.storage.postgres_models import (
+        Base, FlashcardDeckMetadataModel, QuizMetadataModel, UserModel,
+    )
+
+    url = _validate_test_database_url(os.environ["STUDY_BUDDY_TEST_DATABASE_URL"])
+    engine = create_engine(url)
+    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    suffix = os.urandom(8).hex()
+    user_id = f"phase6a-user-{suffix}"
+    quiz_id = f"phase6a-quiz-{suffix}"
+    deck_id = f"phase6a-deck-{suffix}"
+    metadata = PostgresContentMetadataRepository(sessions)
+    bodies = PostgresContentBodyRepository(sessions)
+    try:
+        with sessions.begin() as session:
+            session.add(UserModel(
+                id=user_id, username=user_id, display_name="Phase 6A",
+                password_hash=PasswordHasher.hash("password1"), role="teacher", status="active",
+            ))
+        assert metadata.import_quiz({
+            "id": quiz_id, "name": "Quiz", "moderation": {
+                "owner_id": user_id, "status": "published", "visibility": "public",
+            },
+        }, f"{quiz_id}.json")
+        quiz = {"id": quiz_id, "questions": [{
+            "id": "q1", "question": "Question", "type": "short_answer", "answer": "Answer",
+        }]}
+        assert bodies.import_quiz(quiz)
+        assert bodies.import_quiz(quiz)
+        assert metadata.get_by_id("quiz", quiz_id)["content_version"] == 2
+
+        assert metadata.import_flashcard_deck({
+            "id": deck_id, "name": "Deck", "moderation": {
+                "owner_id": user_id, "status": "published", "visibility": "public",
+            },
+        }, f"{deck_id}.json")
+        deck = {"id": deck_id, "cards": [{"id": "c1", "front": "F", "back": "B", "image": "one.png"}]}
+        assert bodies.import_flashcard_deck(deck)
+        assert bodies.import_flashcard_deck(deck)
+        assert metadata.get_by_id("flashcard", deck_id)["content_version"] == 2
+    finally:
+        with sessions.begin() as session:
+            session.execute(delete(QuizMetadataModel).where(QuizMetadataModel.id == quiz_id))
+            session.execute(delete(FlashcardDeckMetadataModel).where(FlashcardDeckMetadataModel.id == deck_id))
+            session.execute(delete(UserModel).where(UserModel.id == user_id))
+        engine.dispose()
 
 
 class _IdempotentRepository:

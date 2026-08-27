@@ -88,9 +88,9 @@ class QuizListRow(QFrame):
         layout.addWidget(chip)
 
         if quiz.get("can_download"):
-            offline = QPushButton("Downloaded" if quiz.get("downloaded") else "Keep offline")
+            offline = QPushButton("Update available" if quiz.get("update_available") else ("Downloaded" if quiz.get("downloaded") else "Keep offline"))
             offline.setObjectName("content_offline_btn")
-            offline.setEnabled(not quiz.get("downloaded"))
+            offline.setEnabled(not quiz.get("downloaded") or bool(quiz.get("update_available")))
             offline.clicked.connect(self.keep_offline.emit)
             layout.addWidget(offline)
 
@@ -920,6 +920,9 @@ class QuizViewer(QWidget):
             content_id = str(quiz.get("id") or quiz.get("file"))
             cached = self.library.get_downloaded("quiz", content_id, self.controller.user_id)
             quiz["downloaded"] = cached is not None
+            quiz["update_available"] = cached is not None and self.library.update_state(
+                "quiz", content_id, quiz.get("content_version"), self.controller.user_id
+            ) == "update_available"
             quiz["can_download"] = bool(
                 getattr(getattr(self.controller, "repo", None), "supports_offline_download", False)
                 and not quiz.get("locked")
@@ -939,20 +942,27 @@ class QuizViewer(QWidget):
 
     def keep_quiz_offline(self, quiz):
         """Explicitly cache one currently visible remote quiz."""
-        if quiz.get("downloaded") or not hasattr(self.controller.repo, "load_quiz_questions"):
+        if (quiz.get("downloaded") and not quiz.get("update_available")) or not hasattr(self.controller.repo, "load_quiz_questions"):
             return False
         body = {
             "id": str(quiz.get("id") or quiz.get("file")),
             "name": quiz["name"],
             "questions": self.controller.repo.load_quiz_questions(quiz.get("file")),
         }
-        self.library.store_download(
+        if quiz.get("downloaded"):
+            if hasattr(self.controller.repo, "get_quiz_body"):
+                body = self.controller.repo.get_quiz_body(body["id"]) or {}
+            if body.get("content_version") != quiz.get("content_version"):
+                return False
+            self.library.refresh_download("quiz", body["id"], quiz, body, self.controller.user_id)
+        else:
+            self.library.store_download(
             "quiz", body["id"], body, name=body["name"],
             visibility=quiz.get("visibility", "public"),
             owner_id=quiz.get("owner_id"),
             allowed_account_ids=quiz.get("allowed_user_ids", []),
-            content_version=quiz.get("content_version"),
-        )
+                content_version=quiz.get("content_version"),
+            )
         self.refresh_quiz_list()
         return True
 
