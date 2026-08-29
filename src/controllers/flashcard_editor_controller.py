@@ -46,7 +46,8 @@ class FlashcardEditorController:
         metadata = {item["file"]: item for item in self._moderation_items()}
         rows = [
             {**deck, "status": metadata[deck["file"]]["status"],
-             "visibility": metadata[deck["file"]].get("visibility", "private")}
+             "visibility": metadata[deck["file"]].get("visibility", "private"),
+             "moderation_reason": metadata[deck["file"]].get("review_note", "")}
             for deck in self._editable_decks()
         ]
         self._editable_by_name = {row["name"]: row for row in rows}

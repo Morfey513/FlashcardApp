@@ -3,10 +3,10 @@
 import logging
 
 from PyQt6.QtWidgets import (
-    QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
+    QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout,
     QListWidget, QListWidgetItem, QLineEdit, QStackedLayout, QFrame,
     QMessageBox, QComboBox, QTextEdit, QInputDialog, QFileDialog, QToolButton,
-    QApplication, QToolTip, QSpinBox, QDateTimeEdit, QCheckBox
+    QApplication, QToolTip, QSpinBox, QDateTimeEdit, QCheckBox, QSizePolicy
 )
 from PyQt6.QtGui import QPixmap, QCursor
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QDateTime
@@ -15,6 +15,8 @@ from src.controllers.quiz_editor_controller import QuizEditorController
 from src.logic.access_control import VISIBILITIES, VISIBILITY_LABELS, default_visibility_for_status
 from src.logic.translator import get_translator
 from src.ui.auto_scroll import AutoScrollArea
+from src.ui.scrolling_label import ScrollingLabel
+from src.ui.status_badge import format_status_badge, show_moderation_reason
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +193,7 @@ class QuizEditor(QWidget):
 
         self.editor_quiz_list = QListWidget()
         self.editor_quiz_list.setObjectName("editor_quiz_list")
+        self.editor_quiz_list.setSpacing(6)
         # This is the flexible part of the menu.  A large fixed minimum made
         # the list consume the footer's space when a saved window was short.
         self.editor_quiz_list.setMinimumHeight(160)
@@ -249,6 +252,7 @@ class QuizEditor(QWidget):
 
         self.editor_question_list = QListWidget()
         self.editor_question_list.setObjectName("editor_question_list")
+        self.editor_question_list.setSpacing(6)
         self.editor_question_list.setMinimumHeight(350)
         self.editor_question_list.itemDoubleClicked.connect(self.edit_selected_question)
         self.editor_question_list.currentRowChanged.connect(
@@ -495,43 +499,80 @@ class QuizEditor(QWidget):
     def refresh_quiz_list(self):
         self.editor_quiz_list.clear()
         for quiz in self.controller.get_quiz_entries():
-            self._add_quiz_row(quiz["name"], quiz["status"], quiz.get("visibility", "private"))
+            self._add_quiz_row(
+                quiz["name"], quiz["status"], quiz.get("visibility", "private"),
+                quiz.get("moderation_reason", ""),
+            )
         self._sync_inline_selection(self.editor_quiz_list)
 
-    def _add_quiz_row(self, name, status, visibility):
+    def _add_quiz_row(self, name, status, visibility, moderation_reason=""):
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, name)
         row = QWidget()
         row.setObjectName("editor_inline_row")
-        row.setMinimumHeight(42)
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(10, 3, 10, 3)
-        name_label = QLabel(name)
+        row.setMinimumHeight(54)
+        layout = QGridLayout(row)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(10)
+        name_label = ScrollingLabel(name)
         name_label.setObjectName("editor_row_label")
-        layout.addWidget(name_label)
-        status_label = QLabel(f"[ {visibility.replace('_', ' ')} ]")
-        status_label.setObjectName("editor_status")
-        layout.addWidget(status_label)
-        layout.addStretch()
+        name_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        name_label.setToolTip(name)
+        layout.addWidget(name_label, 0, 0)
+        displayed_status = visibility if status == "published" else status
+        is_actionable = status in {"rejected", "banned"}
+        status_label = QPushButton(format_status_badge(
+            displayed_status,
+            f"{status.replace('_', ' ').title()} (info)" if is_actionable else None,
+        ))
+        status_label.setObjectName("content_status_chip")
+        status_label.setProperty("content_status", displayed_status)
+        status_label.setProperty("interactive", is_actionable)
+        status_label.setFixedHeight(30)
+        status_label.setFixedWidth(max(78, status_label.sizeHint().width()))
+        if is_actionable:
+            status_label.setCursor(Qt.CursorShape.PointingHandCursor)
+            status_label.setToolTip("Click to view the moderator's reason")
+            status_label.clicked.connect(
+                lambda _checked=False: show_moderation_reason(self, status, moderation_reason)
+            )
+        else:
+            status_label.setCursor(Qt.CursorShape.ArrowCursor)
+            status_label.setEnabled(False)
+        status_slot = QWidget()
+        status_slot.setObjectName("content_status_slot")
+        status_slot.setFixedWidth(120)
+        status_slot_layout = QHBoxLayout(status_slot)
+        status_slot_layout.setContentsMargins(0, 0, 0, 0)
+        status_slot_layout.addWidget(status_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(status_slot, 0, 1)
+        code_button = QPushButton()
+        code_button.setFixedSize(30, 30)
+        code_button.setObjectName("inline_action")
         if visibility == "class_only":
-            code_button = QToolButton()
-            code_button.setText("🔑")
+            code_button.setText("🔑️")
             code_button.setToolTip("Copy invitation code")
-            code_button.setObjectName("inline_action")
             code_button.clicked.connect(lambda: self.copy_invite_code(name))
-            layout.addWidget(code_button)
-        for icon, tooltip, action in (
+        else:
+            code_button.setEnabled(False)
+        layout.addWidget(code_button, 0, 2, alignment=Qt.AlignmentFlag.AlignCenter)
+        for column, (icon, tooltip, action) in enumerate((
             ("✏", "Edit", lambda: self.edit_quiz_by_name(name)),
             ("⧉", "Copy", lambda: self.copy_quiz_by_name(name)),
-            ("🗑", "Delete", lambda: self.delete_quiz_by_name(name)),
-        ):
-            button = QToolButton()
+            ("🗑️", "Delete", lambda: self.delete_quiz_by_name(name)),
+        ), start=3):
+            button = QPushButton()
             button.setText(icon)
             button.setToolTip(tooltip)
             button.setObjectName("inline_action")
+            button.setFixedSize(30, 30)
             button.clicked.connect(action)
-            layout.addWidget(button)
-        item.setSizeHint(QSize(0, 42))
+            layout.addWidget(button, 0, column, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.setColumnStretch(0, 1)
+        layout.setColumnMinimumWidth(1, 120)
+        for column in range(2, 6):
+            layout.setColumnMinimumWidth(column, 44)
+        item.setSizeHint(QSize(0, 54))
         self.editor_quiz_list.addItem(item)
         self.editor_quiz_list.setItemWidget(item, row)
 
@@ -748,9 +789,9 @@ class QuizEditor(QWidget):
             for icon, tooltip, action in (
                 ("✏", "Edit", lambda _=False, value=idx: self.edit_question_at(value)),
                 ("⧉", "Copy", lambda _=False, value=idx: self.copy_question_at(value)),
-                ("🗑", "Delete", lambda _=False, value=idx: self.delete_question_at(value)),
+                ("🗑️", "Delete", lambda _=False, value=idx: self.delete_question_at(value)),
             ):
-                button = QToolButton()
+                button = QPushButton()
                 button.setText(icon)
                 button.setToolTip(tooltip)
                 button.setObjectName("inline_action")

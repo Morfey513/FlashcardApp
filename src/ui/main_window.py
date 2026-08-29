@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 
 from src.controllers.main_controller import MainController
+from src.config import LAUNCHER_DEFAULT_SIZES
 from src.logic.translator import get_translator
 from src.ui.login_dialog import LoginDialog
 from src.ui.registration_dialog import RegistrationDialog
@@ -481,13 +482,15 @@ class MainLauncher(QWidget):
         management_layout.addWidget(self.role_action_btn, 1, 0, 1, 2)
         layout.addWidget(self.management_row)
 
-        layout.addSpacing(8)
+        # Keep the final authenticated action at a consistent distance from
+        # the role-specific action above it.  A stretch here made the gap
+        # depend on each identity's saved window height, so admin and teacher
+        # launchers could look different despite having the same structure.
+        layout.addSpacing(80)
 
         self.quit_btn = QPushButton()
         self.quit_btn.clicked.connect(self.close)
         layout.addWidget(self.quit_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        layout.addStretch()
         self.stack.addWidget(self.main_panel)
 
     def init_editor_selection_panel(self):
@@ -749,6 +752,12 @@ class MainLauncher(QWidget):
     def _restore_launcher_size(self):
         """Restore geometry after Qt has recalculated the role-specific layout."""
         width, height = self.controller.get_launcher_size()
+        # Keep the two editor-capable launcher roles visually comparable.  An
+        # older admin preference can otherwise leave that launcher much
+        # taller than the teacher launcher even though their layouts contain
+        # the same number of actions.
+        if self.controller.get_current_role() == "admin":
+            width, height = LAUNCHER_DEFAULT_SIZES["teacher"]
         screen = self.screen() or QApplication.primaryScreen()
         if screen:
             available = screen.availableGeometry()
@@ -776,6 +785,14 @@ class MainLauncher(QWidget):
         self._applying_launcher_size = True
         try:
             self.resize(width, height)
+            screen = self.screen() or QApplication.primaryScreen()
+            if screen:
+                available = screen.availableGeometry()
+                margin = 24
+                frame = self.frameGeometry()
+                max_bottom = available.bottom() - margin
+                if frame.bottom() > max_bottom:
+                    self.move(frame.x(), max_bottom - frame.height() + 1)
         finally:
             self._applying_launcher_size = False
 

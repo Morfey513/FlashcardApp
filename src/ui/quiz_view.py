@@ -2,10 +2,10 @@
 
 import logging
 from PyQt6.QtWidgets import (
-    QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
+    QWidget, QPushButton, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout,
     QListWidget, QLineEdit, QScrollArea, QStackedLayout, QFrame,
     QMessageBox, QComboBox, QFormLayout, QListWidgetItem, QProgressBar,
-    QToolButton
+    QToolButton, QSizePolicy
 )
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
@@ -18,6 +18,8 @@ from src.ui.join_with_code_dialog import (
     run_join_with_code_flow,
 )
 from src.storage.content_library import ContentLibrary
+from src.ui.scrolling_label import ScrollingLabel
+from src.ui.status_badge import format_status_badge, show_moderation_reason
 
 logger = logging.getLogger(__name__)
 
@@ -36,45 +38,48 @@ class QuizListRow(QFrame):
         self.setProperty("selected", False)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumHeight(54)
-        layout = QHBoxLayout(self)
+        layout = QGridLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(10)
 
-        name = QLabel(quiz["name"])
+        name = ScrollingLabel(quiz["name"])
         name.setObjectName("quiz_list_name")
-        name.setMaximumWidth(300)
-        layout.addWidget(name, 1)
+        name.setMinimumWidth(0)
+        name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        name.setToolTip(quiz["name"])
+        layout.addWidget(name, 0, 0)
 
         bar = QProgressBar()
         bar.setObjectName("quiz_progress_bar")
         bar.setRange(0, max(quiz["total"], 1))
         bar.setValue(quiz["mastered"])
         bar.setTextVisible(False)
-        bar.setFixedWidth(120)
-        layout.addWidget(bar)
+        bar.setFixedWidth(100)
+        layout.addWidget(bar, 0, 1)
 
         count = QLabel(progress_text)
         count.setObjectName("quiz_progress_text")
-        count.setMinimumWidth(110)
-        layout.addWidget(count)
+        count.setFixedWidth(100)
+        layout.addWidget(count, 0, 2)
 
         latest = quiz.get("latest_test_percentage")
         latest_grade = QLabel("No test yet" if latest is None else f"Latest: {latest:g}%")
         latest_grade.setObjectName("quiz_latest_test")
-        latest_grade.setMinimumWidth(85)
-        layout.addWidget(latest_grade)
+        latest_grade.setFixedWidth(82)
+        layout.addWidget(latest_grade, 0, 3)
 
         status = "locked" if quiz.get("locked") else quiz.get("moderation_status", "published")
         displayed_status = quiz.get("visibility", "public") if status == "published" else status
         is_actionable = quiz.get("can_view_moderation_reason", quiz.get("is_owner")) and status in {"rejected", "banned"}
-        chip = QPushButton(
-            f"{status.replace('_', ' ').title()} (info)" if is_actionable
-            else displayed_status.replace("_", "-").title()
-        )
+        chip = QPushButton(format_status_badge(
+            displayed_status,
+            f"{status.replace('_', ' ').title()} (info)" if is_actionable else None,
+        ))
         chip.setObjectName("content_status_chip")
         chip.setProperty("content_status", displayed_status)
         chip.setProperty("interactive", is_actionable)
-        chip.setFixedSize(120, 30)
+        chip.setFixedWidth(max(78, chip.sizeHint().width()))
+        chip.setFixedHeight(30)
         if is_actionable:
             chip.setCursor(Qt.CursorShape.PointingHandCursor)
             chip.setToolTip("Click to view the moderator's reason")
@@ -85,7 +90,13 @@ class QuizListRow(QFrame):
         else:
             chip.setCursor(Qt.CursorShape.ArrowCursor)
             chip.setEnabled(False)
-        layout.addWidget(chip)
+        status_slot = QWidget()
+        status_slot.setObjectName("content_status_slot")
+        status_slot.setFixedWidth(120)
+        status_layout = QHBoxLayout(status_slot)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.addWidget(chip, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(status_slot, 0, 4)
 
         if (
             quiz.get("can_download") or quiz.get("downloaded")
@@ -98,20 +109,36 @@ class QuizListRow(QFrame):
                 "synchronized": "Synchronized", "available_offline": "Available offline",
                 "locked": "Locked", "download_unavailable": "Offline unavailable",
             }.get(offline_state, "Keep offline")
-            offline = QPushButton(offline_text)
+            # Keep the action available without allowing it to push the
+            # visibility badge out of the row at narrower window sizes.
+            offline = QPushButton("✓" if quiz.get("downloaded") else "📥")
             offline.setObjectName("content_offline_btn")
+            offline.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            offline.setMinimumSize(32, 28)
+            offline.setMaximumSize(32, 28)
+            offline.setFixedSize(32, 28)
+            offline.setToolTip(offline_text)
+            offline.setAccessibleName(offline_text)
             offline.setEnabled(bool(quiz.get("can_download")) and (
                 not quiz.get("downloaded")
                 or offline_state in {"update_available", "update_failed", "stale"}
             ))
             offline.clicked.connect(self.keep_offline.emit)
-            layout.addWidget(offline)
+            offline_frame = QFrame()
+            offline_frame.setObjectName("content_offline_frame")
+            offline_frame.setFixedSize(34, 30)
+            offline_frame_layout = QHBoxLayout(offline_frame)
+            offline_frame_layout.setContentsMargins(0, 0, 0, 0)
+            offline_frame_layout.addWidget(offline)
+            layout.addWidget(offline_frame, 0, 5)
         if quiz.get("media_state") in {"partially_available", "partial", "unavailable"}:
             media_label = QLabel("Media unavailable")
             media_label.setObjectName("content_media_state")
-            layout.addWidget(media_label)
-        if quiz.get("downloaded_bytes"):
-            layout.addWidget(QLabel(f"{int(quiz['downloaded_bytes']):,} bytes"))
+            layout.addWidget(media_label, 1, 0, 1, 6)
+        layout.setColumnStretch(0, 1)
+        layout.setColumnMinimumWidth(1, 100)
+        layout.setColumnMinimumWidth(2, 100)
+        layout.setColumnMinimumWidth(3, 82)
 
 
     def mousePressEvent(self, event):
@@ -368,8 +395,8 @@ class QuizViewer(QWidget):
     def init_menu_panel(self):
         self.menu_panel = QFrame()
         layout = QVBoxLayout(self.menu_panel)
-        layout.setContentsMargins(50, 40, 50, 40)
-        layout.setSpacing(20)
+        layout.setContentsMargins(50, 32, 50, 32)
+        layout.setSpacing(16)
 
         header = QHBoxLayout()
         self.return_launcher_btn = QPushButton()
@@ -977,7 +1004,7 @@ class QuizViewer(QWidget):
                 quiz["offline_state"] = result.get("state") if result else None
                 quiz["locked"] = quiz["offline_state"] == "locked"
                 if result:
-                    quiz.update({key: result[key] for key in ("package_projection", "media_state", "downloaded_bytes") if key in result})
+                    quiz.update({key: result[key] for key in ("package_projection", "media_state") if key in result})
             elif cached is not None:
                 quiz["offline_state"] = "available_offline"
             quiz["can_download"] = bool(
@@ -988,7 +1015,7 @@ class QuizViewer(QWidget):
             row = QuizListRow(quiz, t.t("quiz_view.quiz_progress", mastered=quiz["mastered"], total=quiz["total"]))
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, quiz["name"])
-            item.setSizeHint(QSize(0, 58))
+            item.setSizeHint(QSize(0, max(58, row.sizeHint().height())))
             self.quiz_list.addItem(item)
             self.quiz_list.setItemWidget(item, row)
             self.quiz_rows[quiz["name"]] = row
@@ -1049,11 +1076,4 @@ class QuizViewer(QWidget):
                 self.take_test_btn.setToolTip("")
 
     def show_moderation_reason(self, status, reason):
-        if status not in {"rejected", "banned"}:
-            QMessageBox.information(self, "Content status", f"Status: {status.replace('_', ' ').title()}")
-            return
-        QMessageBox.information(
-            self,
-            f"Content {status.title()}",
-            f"Status: {status.title()}\n\nReason: {reason or 'No reason was provided by the moderator.'}",
-        )
+        show_moderation_reason(self, status, reason)

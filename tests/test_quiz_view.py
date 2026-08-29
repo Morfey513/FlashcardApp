@@ -2,7 +2,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QPushButton
+from PyQt6.QtWidgets import QApplication, QLabel, QPushButton
 
 from src.ui.quiz_view import QuizListRow, QuizViewer
 from src.ui.flashcard_viewer import DeckListRow
@@ -25,6 +25,35 @@ def test_quiz_list_row_tracks_custom_selected_state():
 
     row.set_selected(False)
     assert row.property("selected") is False
+    assert app is not None
+
+
+def test_pending_review_owner_row_does_not_render_cached_package_size():
+    app = QApplication.instance() or QApplication([])
+    quiz = {
+        "name": "Owner quiz",
+        "total": 1,
+        "mastered": 0,
+        "moderation_status": "pending_review",
+        "visibility": "public",
+        "downloaded_bytes": 1024,
+        "is_owner": True,
+    }
+    row = QuizListRow(quiz, "0 of 1 mastered")
+    assert "1,024 bytes" not in [label.text() for label in row.findChildren(QLabel)]
+    assert row.findChild(QPushButton, "content_status_chip").text() == "• Pending-Review"
+    assert app is not None
+
+
+def test_content_row_keeps_media_availability_warning():
+    app = QApplication.instance() or QApplication([])
+    row = QuizListRow({
+        "name": "Media quiz", "total": 1, "mastered": 0,
+        "moderation_status": "published", "media_state": "unavailable",
+    }, "0 of 1 mastered")
+
+    assert row.findChild(QLabel, "content_media_state").text() == "Media unavailable"
+    assert row.sizeHint().height() > 58
     assert app is not None
 
 
@@ -65,8 +94,8 @@ def test_active_content_rows_show_visibility_instead_of_published_status():
     quiz_chip = quiz_row.findChild(QPushButton, "content_status_chip")
     deck_chip = deck_row.findChild(QPushButton, "content_status_chip")
 
-    assert quiz_chip.text() == "Public"
-    assert deck_chip.text() == "Class-Only"
+    assert quiz_chip.text() == "🌐 Public"
+    assert deck_chip.text() == "🔑 Class-Only"
     assert app is not None
 
 

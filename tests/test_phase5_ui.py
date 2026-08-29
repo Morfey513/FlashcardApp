@@ -41,8 +41,13 @@ def test_downloaded_and_locked_states_are_visible():
          "offline_state": "locked"},
         "0 / 0",
     )
-    assert any(button.text() == "Synchronized" for button in downloaded.findChildren(QPushButton))
-    assert any(button.text() == "Locked" for button in locked.findChildren(QPushButton))
+    downloaded_button = downloaded.findChild(QPushButton, "content_offline_btn")
+    locked_button = locked.findChild(QPushButton, "content_offline_btn")
+    assert downloaded_button.text() == "✓"
+    assert downloaded_button.toolTip() == "Synchronized"
+    assert locked_button.text() == "📥"
+    assert locked_button.toolTip() == "Locked"
+    assert downloaded_button.size() == locked_button.size()
     downloaded.close()
     locked.close()
     app.processEvents()
@@ -102,7 +107,8 @@ def test_download_lifecycle_states_are_distinct_and_actionable(
     }, "0 / 1")
     button = row.findChild(QPushButton, "content_offline_btn")
 
-    assert button.text() == label
+    assert button.toolTip() == label
+    assert button.text() in {"📥", "✓"}
     assert button.isEnabled() is enabled
     row.close()
     app.processEvents()

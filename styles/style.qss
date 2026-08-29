@@ -124,18 +124,23 @@ QPushButton#publish_btn {
 
 QPushButton#publish_btn:hover { background-color: #1b7d45; }
 QPushButton#compact_launcher_action { min-width: 0px; max-width: 135px; padding: 8px 6px; }
-QToolButton#inline_action {
+QToolButton#inline_action, QPushButton#inline_action {
     background: transparent;
     border: none;
     color: #b7c8e6;
+    min-width: 0px;
+    min-height: 0px;
+    max-width: 30px;
+    max-height: 30px;
     padding: 4px 7px;
     font-size: 15px;
+    font-family: "Segoe UI Emoji", "Segoe UI Symbol";
 }
-QToolButton#inline_action:hover { background-color: rgba(255, 255, 255, 0.12); border-radius: 5px; }
+QToolButton#inline_action:hover, QPushButton#inline_action:hover { background-color: rgba(255, 255, 255, 0.12); border-radius: 5px; }
 QLabel#editor_status { color: #8ec5ff; font-size: 12px; }
-QWidget#editor_inline_row { background-color: #2a2a2a; border-radius: 5px; }
+QWidget#editor_inline_row { background-color: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; }
 QWidget#editor_inline_row:hover { background-color: #333333; }
-QWidget#editor_inline_row[selected="true"] { background-color: #303f50; border-left: 3px solid #2d89ef; }
+QWidget#editor_inline_row[selected="true"] { background-color: #303840; border-left: 4px solid #2d89ef; }
 QLabel#editor_row_label { color: #e0e0e0; padding: 0px; }
 QFrame#moderation_banner { border-radius: 6px; }
 QFrame#moderation_banner[status="rejected"] { background-color: rgba(245, 158, 11, 0.15); border: 1px solid #d97706; }
@@ -152,7 +157,7 @@ QListWidget#editor_question_list::item:selected {
     background: transparent;
     border: none;
     padding: 0px;
-    margin: 2px 0px;
+    margin: 0px;
 }
 QListWidget#editor_deck_list::item,
 QListWidget#editor_deck_list::item:hover,
@@ -163,7 +168,7 @@ QListWidget#editor_card_list::item:selected {
     background: transparent;
     border: none;
     padding: 0px;
-    margin: 2px 0px;
+    margin: 0px;
 }
 
 QPushButton#danger:pressed {
@@ -882,14 +887,39 @@ QFrame#deck_list_row[selected="true"] {
     background-color: #303840;
     border-left: 4px solid #2d89ef;
 }
-QPushButton#content_status_chip { min-width: 0px; padding: 4px 8px; border-radius: 5px; background-color: #3b4d63; color: #dbeafe; }
-QPushButton#content_status_chip:hover { background-color: #4b6280; }
+QPushButton#content_status_chip { min-width: 0px; min-height: 30px; padding: 3px 10px; border-radius: 14px; background-color: #334155; color: #cbd5e1; font-size: 11px; font-weight: 600; }
+QPushButton#content_status_chip:hover { background-color: #475569; }
+QPushButton#content_status_chip[content_status="public"] { background-color: #064e3b; color: #6ee7b7; border: 1px solid #047857; }
+QPushButton#content_status_chip[content_status="class_only"] { background-color: #1e3a8a; color: #93c5fd; border: 1px solid #1e40af; }
+QPushButton#content_status_chip[content_status="private"], QPushButton#content_status_chip[content_status="draft"] { background-color: #334155; color: #cbd5e1; border: 1px solid #475569; }
 QPushButton#content_status_chip[interactive="true"] { font-weight: 600; border: 1px solid #8aa4c0; }
 QPushButton#content_status_chip:disabled { color: #dbeafe; }
 QPushButton#content_status_chip[content_status="rejected"] { background-color: #7c5a18; color: #fff3c4; }
 QPushButton#content_status_chip[content_status="banned"] { background-color: #7f1d1d; color: #fee2e2; }
 QPushButton#content_status_chip[content_status="rejected"][interactive="true"]:hover { background-color: #9a721d; }
 QPushButton#content_status_chip[content_status="banned"][interactive="true"]:hover { background-color: #991b1b; }
+QPushButton#content_status_chip[content_status="public"]:disabled { color: #6ee7b7; }
+QPushButton#content_status_chip[content_status="class_only"]:disabled { color: #93c5fd; }
+QPushButton#content_status_chip[content_status="private"]:disabled, QPushButton#content_status_chip[content_status="draft"]:disabled { color: #cbd5e1; }
+QWidget#content_status_slot { background: transparent; }
+
+QPushButton#content_offline_btn {
+    min-width: 0px;
+    min-height: 0px;
+    padding: 0px;
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+    color: #b7c8e6;
+}
+QFrame#content_offline_frame {
+    background: transparent;
+    border: 1px solid #475569;
+    border-radius: 5px;
+}
+QFrame#content_offline_frame:hover { background-color: rgba(255, 255, 255, 0.12); }
+QPushButton#content_offline_btn:hover { background-color: rgba(255, 255, 255, 0.12); color: #ffffff; }
+QPushButton#content_offline_btn:disabled { background: transparent; color: #94a3b8; border-color: #475569; }
 
 QListWidget#flashcard_deck_list::item,
 QListWidget#flashcard_deck_list::item:hover,

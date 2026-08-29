@@ -2,7 +2,7 @@
 
 import logging
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLabel,
     QFrame, QListWidget, QListWidgetItem, QStackedLayout, QSpacerItem,
     QSizePolicy, QProgressBar, QToolButton, QMessageBox
 )
@@ -16,6 +16,8 @@ from src.logic.translator import get_translator
 from src.utils.text_to_speech import TextToSpeech
 from src.utils.paths import resolve_stored_path
 from src.utils.recorded_audio import RecordedAudioPlayer
+from src.ui.scrolling_label import ScrollingLabel
+from src.ui.status_badge import format_status_badge, show_moderation_reason
 from src.ui.join_with_code_dialog import (
     configure_join_with_code_button,
     run_join_with_code_flow,
@@ -105,40 +107,43 @@ class DeckListRow(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumHeight(54)
 
-        layout = QHBoxLayout(self)
+        layout = QGridLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(10)
 
-        name = QLabel(self.deck_name)
+        name = ScrollingLabel(self.deck_name)
         name.setObjectName("deck_list_name")
-        name.setMaximumWidth(220)
+        name.setMinimumWidth(0)
+        name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        name.setToolTip(self.deck_name)
         name.setWordWrap(False)
-        layout.addWidget(name, 1)
+        layout.addWidget(name, 0, 0)
 
         progress = QProgressBar()
         progress.setObjectName("deck_progress")
         progress.setRange(0, max(deck["total"], 1))
         progress.setValue(deck["mastered"])
         progress.setTextVisible(False)
-        progress.setFixedWidth(120)
-        layout.addWidget(progress)
+        progress.setFixedWidth(100)
+        layout.addWidget(progress, 0, 1)
 
         count = QLabel(progress_text)
         count.setObjectName("deck_progress_text")
-        count.setMinimumWidth(110)
-        layout.addWidget(count)
+        count.setFixedWidth(100)
+        layout.addWidget(count, 0, 2)
 
         status = "locked" if deck.get("locked") else deck.get("moderation_status", "published")
         displayed_status = deck.get("visibility", "public") if status == "published" else status
         is_actionable = deck.get("can_view_moderation_reason", deck.get("is_owner")) and status in {"rejected", "banned"}
-        chip = QPushButton(
-            f"{status.replace('_', ' ').title()} (info)" if is_actionable
-            else displayed_status.replace("_", "-").title()
-        )
+        chip = QPushButton(format_status_badge(
+            displayed_status,
+            f"{status.replace('_', ' ').title()} (info)" if is_actionable else None,
+        ))
         chip.setObjectName("content_status_chip")
         chip.setProperty("content_status", displayed_status)
         chip.setProperty("interactive", is_actionable)
-        chip.setFixedSize(120, 30)
+        chip.setFixedWidth(max(78, chip.sizeHint().width()))
+        chip.setFixedHeight(30)
         if is_actionable:
             chip.setCursor(Qt.CursorShape.PointingHandCursor)
             chip.setToolTip("Click to view the moderator's reason")
@@ -149,7 +154,13 @@ class DeckListRow(QFrame):
         else:
             chip.setCursor(Qt.CursorShape.ArrowCursor)
             chip.setEnabled(False)
-        layout.addWidget(chip)
+        status_slot = QWidget()
+        status_slot.setObjectName("content_status_slot")
+        status_slot.setFixedWidth(120)
+        status_layout = QHBoxLayout(status_slot)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.addWidget(chip, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(status_slot, 0, 3)
 
         if deck.get("can_download") or deck.get("downloaded") or deck.get("offline_state") == "locked":
             offline_state = deck.get("offline_state")
@@ -159,20 +170,35 @@ class DeckListRow(QFrame):
                 "synchronized": "Synchronized", "available_offline": "Available offline",
                 "locked": "Locked",
             }.get(offline_state, "Keep offline")
-            offline = QPushButton(offline_text)
+            # A compact icon keeps the visibility chip and progress columns
+            # readable on the default flashcard window width.
+            offline = QPushButton("✓" if deck.get("downloaded") else "📥")
             offline.setObjectName("content_offline_btn")
+            offline.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            offline.setMinimumSize(32, 28)
+            offline.setMaximumSize(32, 28)
+            offline.setFixedSize(32, 28)
+            offline.setToolTip(offline_text)
+            offline.setAccessibleName(offline_text)
             offline.setEnabled(bool(deck.get("can_download")) and (
                 not deck.get("downloaded")
                 or offline_state in {"update_available", "update_failed", "stale"}
             ))
             offline.clicked.connect(self.keep_offline.emit)
-            layout.addWidget(offline)
+            offline_frame = QFrame()
+            offline_frame.setObjectName("content_offline_frame")
+            offline_frame.setFixedSize(34, 30)
+            offline_frame_layout = QHBoxLayout(offline_frame)
+            offline_frame_layout.setContentsMargins(0, 0, 0, 0)
+            offline_frame_layout.addWidget(offline)
+            layout.addWidget(offline_frame, 0, 4)
         if deck.get("media_state") in {"partially_available", "partial", "unavailable"}:
             media_label = QLabel("Media unavailable")
             media_label.setObjectName("content_media_state")
-            layout.addWidget(media_label)
-        if deck.get("downloaded_bytes"):
-            layout.addWidget(QLabel(f"{int(deck['downloaded_bytes']):,} bytes"))
+            layout.addWidget(media_label, 1, 0, 1, 5)
+        layout.setColumnStretch(0, 1)
+        layout.setColumnMinimumWidth(1, 100)
+        layout.setColumnMinimumWidth(2, 100)
 
 
     def mousePressEvent(self, event):
@@ -437,7 +463,8 @@ class FlashcardViewer(QWidget):
     def init_deck_selection_panel(self):
         self.deck_selection_panel = QFrame()
         layout = QVBoxLayout(self.deck_selection_panel)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setContentsMargins(40, 32, 40, 32)
+        layout.setSpacing(16)
 
         header = QHBoxLayout()
         self.back_btn = QPushButton()
@@ -793,7 +820,7 @@ class FlashcardViewer(QWidget):
                 deck["offline_state"] = result.get("state") if result else None
                 deck["locked"] = deck["offline_state"] == "locked"
                 if result:
-                    deck.update({key: result[key] for key in ("media_state", "downloaded_bytes") if key in result})
+                    deck.update({key: result[key] for key in ("media_state",) if key in result})
             elif cached is not None:
                 deck["offline_state"] = "available_offline"
             deck["can_download"] = bool(
@@ -808,9 +835,9 @@ class FlashcardViewer(QWidget):
             row = DeckListRow(deck, progress_text)
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, deck["name"])
-            # Let QListWidget use its viewport width; only the row height is fixed.
-            # This avoids a horizontal scrollbar for longer deck names.
-            item.setSizeHint(QSize(0, 58))
+            # Let QListWidget use its viewport width while preserving any
+            # secondary media/download state line in the row.
+            item.setSizeHint(QSize(0, max(58, row.sizeHint().height())))
             self.deck_list.addItem(item)
             self.deck_list.setItemWidget(item, row)
             self.deck_rows[deck["name"]] = row
@@ -845,14 +872,7 @@ class FlashcardViewer(QWidget):
 
     def show_moderation_reason(self, status, reason):
         """Explain an owner-visible lifecycle decision without opening study mode."""
-        if status not in {"rejected", "banned"}:
-            QMessageBox.information(self, "Content status", f"Status: {status.replace('_', ' ').title()}")
-            return
-        QMessageBox.information(
-            self,
-            f"Content {status.title()}",
-            f"Status: {status.title()}\n\nReason: {reason or 'No reason was provided by the moderator.'}",
-        )
+        show_moderation_reason(self, status, reason)
 
     def update_deck_selection(self, current, _previous):
         selected_name = current.data(Qt.ItemDataRole.UserRole) if current else None

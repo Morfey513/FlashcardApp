@@ -51,7 +51,8 @@ class QuizEditorController:
         }
         rows = [
             {**quiz, "status": metadata[quiz["file"]]["status"],
-             "visibility": metadata[quiz["file"]].get("visibility", "private")}
+             "visibility": metadata[quiz["file"]].get("visibility", "private"),
+             "moderation_reason": metadata[quiz["file"]].get("review_note", "")}
             for quiz in self._editable_quizzes()
         ]
         self._editable_by_name = {row["name"]: row for row in rows}
