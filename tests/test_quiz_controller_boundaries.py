@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from src.controllers.quiz_controller import QuizController
 from src.storage.flashcard_repository import FlashcardRepository
 from src.storage.moderation_repository import ModerationRepository
@@ -249,3 +251,50 @@ def test_remote_assessment_resume_precedes_generic_unresolved_preflight(tmp_path
     assert calls == [expected_quiz_id]
     assert controller.remote_assessment is True
     assert controller.active_test_attempt["id"] == "existing-attempt"
+
+
+def test_cached_practice_package_cannot_start_assessment():
+    class Repo:
+        def start_assessment(self, *_args):
+            raise AssertionError("cached practice must not create an attempt")
+
+    controller = QuizController("student", Repo())
+    controller._visible_quizzes = lambda: [{
+        "id": "quiz-cache", "file": "quiz-cache", "name": "Cached",
+        "source": "downloaded", "package_projection": "practice_only",
+        "visibility": "class_only", "test_settings": {},
+    }]
+    assert controller.load_quiz_by_name("Cached", mode="test") is None
+
+
+@pytest.mark.parametrize("projection", [None, "editor_full", "practice_only"])
+def test_any_cached_quiz_package_cannot_start_assessment(projection):
+    class Repo:
+        def start_assessment(self, *_args):
+            raise AssertionError("cached package must not create an attempt")
+
+    controller = QuizController("teacher", Repo())
+    controller._visible_quizzes = lambda: [{
+        "id": "quiz-cache", "file": "quiz-cache", "name": "Cached",
+        "source": "downloaded", "package_projection": projection,
+        "visibility": "class_only", "test_settings": {},
+    }]
+    assert controller.load_quiz_by_name("Cached", mode="test") is None
+
+
+def test_online_assessment_remains_available_with_downloaded_practice_copy():
+    class Repo:
+        def start_assessment(self, quiz_id):
+            return {"id": "attempt-1", "questions": [{
+                "id": "q1", "position": 0, "type": "short_answer", "question": "Q",
+            }]}
+
+    controller = QuizController("student", Repo())
+    controller._visible_quizzes = lambda: [{
+        "id": "quiz-online", "file": "quiz-online", "name": "Online",
+        "source": "remote", "package_projection": "practice_only",
+        "visibility": "class_only", "test_settings": {},
+    }]
+    assert controller.load_quiz_by_name("Online", mode="test")
+    assert controller.remote_assessment is True
+    assert controller.active_test_attempt["id"] == "attempt-1"

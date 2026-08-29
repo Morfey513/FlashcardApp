@@ -14,7 +14,10 @@ from src.storage.postgres_content_body_repository import PostgresContentBodyRepo
 
 
 def main() -> int:
+    # This one-shot migration is the only path allowed to ingest trusted legacy
+    # JSON filesystem references. Runtime/API body writes require opaque IDs.
     repository = PostgresContentBodyRepository()
+    repository.allow_legacy_paths = True
     imported_quizzes = 0
     imported_decks = 0
     failed = []

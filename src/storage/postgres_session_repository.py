@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.storage.database import create_session_factory
 from src.storage.postgres_models import UserSessionModel
+from src.storage.errors import RepositoryUnavailable
 
 
 class PostgresSessionRepository:
@@ -33,15 +34,18 @@ class PostgresSessionRepository:
         token = secrets.token_urlsafe(32)
         now = datetime.now(timezone.utc)
         expires_at = now + self.lifetime
-        with self.session_factory.begin() as session:
-            session.add(
-                UserSessionModel(
-                    id=str(uuid.uuid4()),
-                    user_id=str(user_id),
-                    session_token_hash=self._token_hash(token),
-                    expires_at=expires_at,
+        try:
+            with self.session_factory.begin() as session:
+                session.add(
+                    UserSessionModel(
+                        id=str(uuid.uuid4()),
+                        user_id=str(user_id),
+                        session_token_hash=self._token_hash(token),
+                        expires_at=expires_at,
+                    )
                 )
-            )
+        except SQLAlchemyError as exc:
+            raise RepositoryUnavailable("Session storage is unavailable") from exc
         return token, max(0, int(self.lifetime.total_seconds()))
 
     def is_ready(self) -> bool:
@@ -67,8 +71,8 @@ class PostgresSessionRepository:
                 if self._as_utc(stored.expires_at) <= datetime.now(timezone.utc):
                     return None
                 return stored.user_id
-        except SQLAlchemyError:
-            return None
+        except SQLAlchemyError as exc:
+            raise RepositoryUnavailable("Session storage is unavailable") from exc
 
     def revoke(self, token: str) -> bool:
         if not token:

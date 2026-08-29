@@ -11,6 +11,7 @@ from src.config import MASTERY_REQUIRED_SCORE, MASTERY_WRONG_PENALTY
 from src.storage.repository_factory import (
     create_class_repository, create_moderation_repository, create_quiz_repository,
 )
+from src.storage.downloaded_content_service import DownloadedContentService
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,26 @@ class QuizController:
         self.remote_submit_failed = False
         self._policy_cache = {}
         self._prepared_quiz_start = None
+        self.downloaded_content = None
+
+    def configure_downloaded_content(self, library, base_repository=None):
+        """Attach the lifecycle service before the read-through repository is installed."""
+        base = base_repository or self.repo
+        metadata = getattr(base, "metadata", None)
+        bodies = getattr(base, "bodies", None)
+        if metadata is not None and bodies is not None:
+            self.downloaded_content = DownloadedContentService(library, metadata, bodies)
+        return self.downloaded_content
+
+    def check_downloaded_content(self, content_id):
+        return self.downloaded_content.check("quiz", content_id, self.user_id) if self.downloaded_content else None
+
+    def update_downloaded_content(self, content_id):
+        return self.downloaded_content.update("quiz", content_id, self.user_id) if self.downloaded_content else None
+
+    def get_cached_content_state(self, content_id):
+        return (self.downloaded_content.get_cached_state("quiz", content_id, self.user_id)
+                if self.downloaded_content else None)
 
     def get_available_quizzes(self):
         """Returns list of names for the UI list widget."""
@@ -186,6 +207,9 @@ class QuizController:
         if meta:
             if meta.get("moderation_status") == "banned":
                 logger.warning("Blocked attempt to study banned quiz '%s'", name)
+                return None
+            if mode == "test" and meta.get("source") == "downloaded":
+                logger.warning("Blocked assessment attempt for cached quiz package '%s'", name)
                 return None
             if mode == "test" and meta.get("visibility") == "class_only":
                 start_assessment = getattr(self.repo, "start_assessment", None)

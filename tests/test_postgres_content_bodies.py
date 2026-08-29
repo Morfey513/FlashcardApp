@@ -10,6 +10,9 @@ from src.storage.postgres_models import (
 )
 from src.utils.paths import to_stored_path
 
+PNG = b"\x89PNG\r\n\x1a\n"
+MP3 = b"ID3"
+
 
 def _repository(tmp_path):
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'content.db'}")
@@ -35,7 +38,9 @@ def _repository(tmp_path):
         session.add(FlashcardDeckMetadataModel(
             id="deck-1", name="Deck", source_path="deck.json", **common
         ))
-    return PostgresContentBodyRepository(sessions), sessions, engine
+    return PostgresContentBodyRepository(
+        sessions, allow_legacy_paths=True, media_root=tmp_path / "managed-media"
+    ), sessions, engine
 
 
 def _quiz(image_path=""):
@@ -62,7 +67,7 @@ def _quiz(image_path=""):
 def test_quiz_body_import_round_trip_all_types_and_is_idempotent(tmp_path):
     repository, sessions, engine = _repository(tmp_path)
     image = tmp_path / "planet.png"
-    image.write_bytes(b"fake-png")
+    image.write_bytes(PNG + b"fake-png")
     source = _quiz(str(image))
     assert repository.import_quiz(source)
     assert repository.import_quiz(source)
@@ -76,7 +81,8 @@ def test_quiz_body_import_round_trip_all_types_and_is_idempotent(tmp_path):
     assert loaded["questions"][1]["answer"] == ["Apple", "Banana"]
     assert loaded["questions"][2]["answer"] is True
     assert loaded["questions"][3]["answer"] == "Tokyo"
-    assert loaded["questions"][0]["image_path"] == to_stored_path(image)
+    assert loaded["questions"][0]["image_path"]
+    assert loaded["questions"][0]["image_path"] != to_stored_path(image)
     assert loaded["questions"][4]["pairs"] == [{"prompt": "Spain", "answer": "Madrid"}]
     assert loaded["questions"][5]["answer"] == ["Red", "Orange"]
     redacted = repository.get_quiz("quiz-1", include_answers=False)
@@ -90,7 +96,7 @@ def test_quiz_body_import_round_trip_all_types_and_is_idempotent(tmp_path):
         assert session.scalar(select(func.count()).select_from(MatchingPairModel)) == 1
         assert session.scalar(select(func.count()).select_from(ShortAnswerVariantModel)) == 1
         media = session.scalar(select(MediaModel))
-        assert media.size_bytes == len(b"fake-png")
+        assert media.size_bytes == len(PNG + b"fake-png")
         assert len(media.checksum_sha256) == 64
     engine.dispose()
 
@@ -100,9 +106,9 @@ def test_flashcard_body_round_trip_separate_audio_roles(tmp_path):
     image = tmp_path / "image.jpg"
     front_audio = tmp_path / "front.mp3"
     back_audio = tmp_path / "back.mp3"
-    image.write_bytes(b"image")
-    front_audio.write_bytes(b"front")
-    back_audio.write_bytes(b"back")
+    image.write_bytes(b"\xff\xd8\xff" + b"image")
+    front_audio.write_bytes(MP3 + b"front")
+    back_audio.write_bytes(MP3 + b"back")
     source = {
         "id": "deck-1", "name": "Deck", "cards": [{
             "id": "card-1", "front": "Question", "back": "Answer",
@@ -114,10 +120,17 @@ def test_flashcard_body_round_trip_separate_audio_roles(tmp_path):
     assert repository.import_flashcard_deck(source)
     loaded = repository.get_flashcard_deck("deck-1")
     assert loaded["cards"][0]["front"] == "Question"
-    assert loaded["cards"][0]["image"] == to_stored_path(image)
-    assert loaded["cards"][0]["audio"] == {
-        "front": to_stored_path(front_audio), "back": to_stored_path(back_audio)
+    assert loaded["cards"][0]["image"]
+    assert loaded["cards"][0]["audio"]["front"]
+    assert loaded["cards"][0]["audio"]["back"]
+    package = repository.get_practice_package("flashcard", "deck-1")
+    descriptors = repository.get_media_descriptors("flashcard", "deck-1")
+    assert "image" not in package["cards"][0]
+    assert "audio" not in package["cards"][0]
+    assert {item["role"] for item in package["cards"][0]["media"]} == {
+        "image", "audio_front", "audio_back",
     }
+    assert all("storage_key" not in item for item in descriptors)
     with sessions() as session:
         assert session.scalar(select(func.count()).select_from(FlashcardModel)) == 1
         assert session.scalar(select(func.count()).select_from(MediaModel)) == 3
@@ -259,15 +272,16 @@ def test_flashcard_body_query_count_is_bounded_with_media(tmp_path):
         assert one_card_count <= 3
         assert hundred_card_count <= 3
         assert hundred_card_count == one_card_count
-        assert hundred["cards"][37] == {
+        card = hundred["cards"][37]
+        assert {key: card[key] for key in (
+            "id", "front", "back", "hint", "description"
+        )} == {
             "id": "card-037", "front": "Front 37", "back": "Back 37",
             "hint": "Hint 37", "description": "Description 37",
-            "image": to_stored_path("images/37.png"),
-            "audio": {
-                "back": to_stored_path("audio/37-back.mp3"),
-                "front": to_stored_path("audio/37-front.mp3"),
-            },
         }
+        assert card["image"] and "/" not in card["image"]
+        assert card["audio"]["back"] and "/" not in card["audio"]["back"]
+        assert card["audio"]["front"] and "/" not in card["audio"]["front"]
     finally:
         event.remove(engine, "before_cursor_execute", listener)
         engine.dispose()
@@ -322,16 +336,14 @@ def test_flashcard_body_skips_deleted_media_and_keeps_remaining_roles(tmp_path):
     })
     with sessions.begin() as session:
         image = session.scalar(select(MediaModel).where(
-            MediaModel.storage_key == to_stored_path("image.png")
+            MediaModel.original_filename == "image.png"
         ))
         session.delete(image)
 
     loaded = repository.get_flashcard_deck("deck-1")["cards"][0]
     assert loaded["image"] == ""
-    assert loaded["audio"] == {
-        "back": to_stored_path("back.mp3"),
-        "front": to_stored_path("front.mp3"),
-    }
+    assert set(loaded["audio"]) == {"back", "front"}
+    assert all(value and "/" not in value for value in loaded["audio"].values())
     with sessions() as session:
         assert session.scalar(select(func.count()).select_from(FlashcardMediaModel)) == 2
     engine.dispose()
@@ -383,4 +395,123 @@ def test_flashcard_import_revision_is_idempotent_and_media_reference_sensitive(t
     assert repository.import_flashcard_deck(changed)
     with sessions() as session:
         assert session.scalar(select(FlashcardDeckMetadataModel).where(FlashcardDeckMetadataModel.id == "deck-1")).content_version == 3
+    engine.dispose()
+
+
+def test_practice_projection_uses_stable_media_references_and_descriptors(tmp_path):
+    repository, _sessions, engine = _repository(tmp_path)
+    image = tmp_path / "practice.png"
+    image.write_bytes(PNG + b"practice-image")
+    assert repository.import_quiz(_quiz(str(image)))
+
+    package = repository.get_practice_package("quiz", "quiz-1")
+    descriptors = repository.get_media_descriptors("quiz", "quiz-1")
+
+    assert package["package_type"] == "offline_practice"
+    assert len(package["questions"]) == 6
+    assert "image_path" not in package["questions"][0]
+    assert package["questions"][0]["media"] == [{
+        "media_id": descriptors[0]["media_id"], "role": "image",
+    }]
+    assert descriptors[0]["content_id"] == "quiz-1"
+    assert descriptors[0]["attachment_role"] == "image"
+    assert descriptors[0]["size_bytes"] == len(PNG + b"practice-image")
+    assert len(descriptors[0]["checksum_sha256"]) == 64
+    assert "storage_key" not in descriptors[0]
+    attached = repository.get_media_attachment(
+        "quiz", "quiz-1", descriptors[0]["media_id"]
+    )
+    assert attached["storage_key"] != to_stored_path(image)
+    assert "/" not in attached["storage_key"] and "\\" not in attached["storage_key"]
+    assert repository.get_media_attachment("flashcard", "deck-1", descriptors[0]["media_id"]) is None
+    engine.dispose()
+
+
+def test_media_bytes_changed_at_same_key_advances_parent_revision(tmp_path):
+    repository, sessions, engine = _repository(tmp_path)
+    image = tmp_path / "changing.png"
+    image.write_bytes(PNG + b"first")
+    source = _quiz(str(image))
+    assert repository.import_quiz(source)
+    with sessions() as session:
+        initial = session.get(QuizMetadataModel, "quiz-1").content_version
+
+    image.write_bytes(PNG + b"second-content")
+    assert repository.import_quiz(source)
+    with sessions() as session:
+        metadata = session.get(QuizMetadataModel, "quiz-1")
+        media = session.scalar(select(MediaModel))
+        assert metadata.content_version == initial + 1
+        assert media.size_bytes == len(PNG + b"second-content")
+    engine.dispose()
+
+
+def test_shared_media_change_advances_every_attached_envelope_once(tmp_path):
+    repository, sessions, engine = _repository(tmp_path)
+    shared = tmp_path / "shared.png"
+    shared.write_bytes(PNG + b"first")
+    quiz = _quiz(str(shared))
+    deck = {"id": "deck-1", "cards": [{
+        "id": "card-1", "front": "F", "back": "B", "image": str(shared),
+    }]}
+    assert repository.import_quiz(quiz)
+    assert repository.import_flashcard_deck(deck)
+
+    shared.write_bytes(PNG + b"second-content")
+    assert repository.import_quiz(quiz)
+    with sessions() as session:
+        assert session.get(QuizMetadataModel, "quiz-1").content_version == 3
+        assert session.get(FlashcardDeckMetadataModel, "deck-1").content_version == 3
+    quiz_media = repository.get_media_descriptors("quiz", "quiz-1")[0]
+    deck_media = repository.get_media_descriptors("flashcard", "deck-1")[0]
+    assert quiz_media["checksum_sha256"] == deck_media["checksum_sha256"]
+    assert quiz_media["content_version"] == deck_media["content_version"] == 3
+
+    assert repository.import_quiz(quiz)
+    with sessions() as session:
+        assert session.get(QuizMetadataModel, "quiz-1").content_version == 3
+        assert session.get(FlashcardDeckMetadataModel, "deck-1").content_version == 3
+    engine.dispose()
+
+
+def test_detaching_shared_media_advances_only_edited_envelope(tmp_path):
+    repository, sessions, engine = _repository(tmp_path)
+    shared = tmp_path / "detach.png"
+    shared.write_bytes(PNG + b"stable")
+    quiz = _quiz(str(shared))
+    deck = {"id": "deck-1", "cards": [{
+        "id": "card-1", "front": "F", "back": "B", "image": str(shared),
+    }]}
+    assert repository.import_quiz(quiz)
+    assert repository.import_flashcard_deck(deck)
+
+    detached = _quiz()
+    assert repository.import_quiz(detached)
+    with sessions() as session:
+        assert session.get(QuizMetadataModel, "quiz-1").content_version == 3
+        assert session.get(FlashcardDeckMetadataModel, "deck-1").content_version == 2
+    engine.dispose()
+
+
+def test_multiple_shared_media_changes_increment_each_envelope_only_once(tmp_path):
+    repository, sessions, engine = _repository(tmp_path)
+    first = tmp_path / "shared-first.png"
+    second = tmp_path / "shared-second.png"
+    first.write_bytes(PNG + b"first-a")
+    second.write_bytes(PNG + b"first-b")
+    quiz = _quiz(str(first))
+    quiz["questions"][1]["image_path"] = str(second)
+    deck = {"id": "deck-1", "cards": [
+        {"id": "c1", "front": "F1", "back": "B1", "image": str(first)},
+        {"id": "c2", "front": "F2", "back": "B2", "image": str(second)},
+    ]}
+    assert repository.import_quiz(quiz)
+    assert repository.import_flashcard_deck(deck)
+
+    first.write_bytes(PNG + b"second-a")
+    second.write_bytes(PNG + b"second-b")
+    assert repository.import_quiz(quiz)
+    with sessions() as session:
+        assert session.get(QuizMetadataModel, "quiz-1").content_version == 3
+        assert session.get(FlashcardDeckMetadataModel, "deck-1").content_version == 3
     engine.dispose()

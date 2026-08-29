@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from src.storage.database import create_session_factory
+from src.storage.errors import RepositoryUnavailable
 from src.storage.postgres_models import (
     ClassFlashcardDeckModel,
     ClassInvitationModel,
@@ -232,6 +233,24 @@ class PostgresClassRepository:
                 return {"quiz": quizzes, "flashcard": decks}
         except SQLAlchemyError:
             return {"quiz": set(), "flashcard": set()}
+
+    def has_active_content_access(self, user_id, kind, content_id):
+        """Check one enrollment without expanding the actor's entire content catalog."""
+        try:
+            _model, link_model, link_field, _normalized_kind = self._models(kind)
+            content_column = getattr(link_model, link_field)
+            with self.session_factory() as session:
+                return session.scalar(select(ClassMemberModel.class_id).join(
+                    link_model, link_model.class_id == ClassMemberModel.class_id,
+                ).where(
+                    ClassMemberModel.user_id == str(user_id),
+                    ClassMemberModel.status == "active",
+                    content_column == str(content_id),
+                ).limit(1)) is not None
+        except SQLAlchemyError as exc:
+            raise RepositoryUnavailable("Content authorization is unavailable") from exc
+        except ValueError:
+            return False
 
     def _import_invitation(self, session, classroom, invitation):
         code = str(invitation.get("code") or "").strip()

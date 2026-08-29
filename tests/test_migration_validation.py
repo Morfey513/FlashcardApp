@@ -140,7 +140,7 @@ def test_validation_rejects_unsafe_database_urls(database_url, message):
     not os.getenv("STUDY_BUDDY_TEST_DATABASE_URL"),
     reason="set STUDY_BUDDY_TEST_DATABASE_URL to an isolated disposable PostgreSQL database",
 )
-def test_content_revision_imports_against_postgresql():
+def test_content_revision_imports_against_postgresql(tmp_path):
     """Exercise Phase 6A body revision idempotence on real PostgreSQL."""
     from sqlalchemy import create_engine, delete, event, select
     from sqlalchemy.orm import sessionmaker
@@ -149,7 +149,7 @@ def test_content_revision_imports_against_postgresql():
     from src.storage.postgres_content_body_repository import PostgresContentBodyRepository
     from src.storage.postgres_content_metadata_repository import PostgresContentMetadataRepository
     from src.storage.postgres_models import (
-        Base, FlashcardDeckMetadataModel, QuizMetadataModel, UserModel,
+        Base, FlashcardDeckMetadataModel, MediaModel, QuizMetadataModel, UserModel,
     )
 
     url = _validate_test_database_url(os.environ["STUDY_BUDDY_TEST_DATABASE_URL"])
@@ -160,7 +160,9 @@ def test_content_revision_imports_against_postgresql():
     quiz_id = f"phase6a-quiz-{suffix}"
     deck_id = f"phase6a-deck-{suffix}"
     metadata = PostgresContentMetadataRepository(sessions)
-    bodies = PostgresContentBodyRepository(sessions)
+    bodies = PostgresContentBodyRepository(
+        sessions, allow_legacy_paths=True, media_root=tmp_path / "managed-media"
+    )
     try:
         with sessions.begin() as session:
             session.add(UserModel(
@@ -184,10 +186,23 @@ def test_content_revision_imports_against_postgresql():
                 "owner_id": user_id, "status": "published", "visibility": "public",
             },
         }, f"{deck_id}.json")
-        deck = {"id": deck_id, "cards": [{"id": "c1", "front": "F", "back": "B", "image": "one.png"}]}
+        media_path = tmp_path / f"{deck_id}.png"
+        media_path.write_bytes(b"\x89PNG\r\n\x1a\nfirst")
+        deck = {"id": deck_id, "cards": [{
+            "id": "c1", "front": "F", "back": "B", "image": str(media_path),
+        }]}
         assert bodies.import_flashcard_deck(deck)
         assert bodies.import_flashcard_deck(deck)
         assert metadata.get_by_id("flashcard", deck_id)["content_version"] == 2
+        descriptors = bodies.get_media_descriptors("flashcard", deck_id)
+        assert descriptors[0]["content_version"] == 2
+        assert descriptors[0]["size_bytes"] == len(b"\x89PNG\r\n\x1a\nfirst")
+        media_path.write_bytes(b"\x89PNG\r\n\x1a\nsecond-content")
+        assert bodies.import_flashcard_deck(deck)
+        assert metadata.get_by_id("flashcard", deck_id)["content_version"] == 3
+        assert bodies.get_media_descriptors("flashcard", deck_id)[0]["size_bytes"] == len(
+            b"\x89PNG\r\n\x1a\nsecond-content"
+        )
 
         statements = []
         def record_statement(*_args):
@@ -209,6 +224,163 @@ def test_content_revision_imports_against_postgresql():
         with sessions.begin() as session:
             session.execute(delete(QuizMetadataModel).where(QuizMetadataModel.id == quiz_id))
             session.execute(delete(FlashcardDeckMetadataModel).where(FlashcardDeckMetadataModel.id == deck_id))
+            session.execute(delete(MediaModel).where(MediaModel.owner_id == user_id))
+            session.execute(delete(UserModel).where(UserModel.id == user_id))
+        engine.dispose()
+
+
+@pytest.mark.skipif(
+    not os.getenv("STUDY_BUDDY_TEST_DATABASE_URL"),
+    reason="set STUDY_BUDDY_TEST_DATABASE_URL to an isolated disposable PostgreSQL database",
+)
+def test_postgresql_operational_failure_is_not_collapsed_to_content_absence():
+    """Inject a driver-level read failure through a real PostgreSQL engine."""
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import sessionmaker
+
+    from src.storage.errors import RepositoryUnavailable
+    from src.storage.postgres_content_metadata_repository import (
+        PostgresContentMetadataRepository,
+    )
+
+    url = _validate_test_database_url(os.environ["STUDY_BUDDY_TEST_DATABASE_URL"])
+    engine = create_engine(url)
+    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+
+    def fail_query(*_args, **_kwargs):
+        raise OperationalError("SELECT", {}, RuntimeError("injected outage"))
+
+    event.listen(engine, "before_cursor_execute", fail_query)
+    try:
+        with pytest.raises(RepositoryUnavailable):
+            PostgresContentMetadataRepository(sessions).get_by_id(
+                "quiz", "failure-injection"
+            )
+    finally:
+        event.remove(engine, "before_cursor_execute", fail_query)
+        engine.dispose()
+
+
+@pytest.mark.skipif(
+    not os.getenv("STUDY_BUDDY_TEST_DATABASE_URL"),
+    reason="set STUDY_BUDDY_TEST_DATABASE_URL to an isolated disposable PostgreSQL database",
+)
+def test_content_revision_concurrent_body_imports_do_not_lose_increments():
+    """Two independent PostgreSQL writers serialize revision advancement."""
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy import create_engine, delete
+    from sqlalchemy.orm import sessionmaker
+    from src.logic.passwords import PasswordHasher
+    from src.storage.postgres_content_body_repository import PostgresContentBodyRepository
+    from src.storage.postgres_content_metadata_repository import PostgresContentMetadataRepository
+    from src.storage.postgres_models import QuizMetadataModel, UserModel
+
+    url = _validate_test_database_url(os.environ["STUDY_BUDDY_TEST_DATABASE_URL"])
+    engine = create_engine(url, pool_size=5, max_overflow=0)
+    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    suffix = os.urandom(8).hex()
+    user_id, quiz_id = f"race-user-{suffix}", f"race-quiz-{suffix}"
+    metadata = PostgresContentMetadataRepository(sessions)
+    bodies = PostgresContentBodyRepository(sessions)
+    try:
+        with sessions.begin() as session:
+            session.add(UserModel(id=user_id, username=user_id, display_name="Race", password_hash=PasswordHasher.hash("password1"), role="teacher", status="active"))
+        assert metadata.import_quiz({"id": quiz_id, "name": "Race", "moderation": {"owner_id": user_id, "status": "published", "visibility": "public"}}, "race.json")
+        assert bodies.import_quiz({"id": quiz_id, "questions": [{"id": "q", "question": "initial", "type": "short_answer", "answer": "a"}]})
+        payloads = [{"id": quiz_id, "questions": [{"id": "q", "question": value, "type": "short_answer", "answer": "a"}]} for value in ("one", "two")]
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(PostgresContentBodyRepository(sessions).import_quiz, payloads))
+        assert results == [True, True]
+        assert metadata.get_by_id("quiz", quiz_id)["content_version"] == 4
+    finally:
+        with sessions.begin() as session:
+            session.execute(delete(QuizMetadataModel).where(QuizMetadataModel.id == quiz_id))
+            session.execute(delete(UserModel).where(UserModel.id == user_id))
+        engine.dispose()
+
+
+@pytest.mark.skipif(
+    not os.getenv("STUDY_BUDDY_TEST_DATABASE_URL"),
+    reason="set STUDY_BUDDY_TEST_DATABASE_URL to an isolated disposable PostgreSQL database",
+)
+def test_concurrent_shared_media_imports_advance_all_envelopes_once(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy import create_engine, delete
+    from sqlalchemy.orm import sessionmaker
+
+    from src.logic.passwords import PasswordHasher
+    from src.storage.postgres_content_body_repository import PostgresContentBodyRepository
+    from src.storage.postgres_content_metadata_repository import PostgresContentMetadataRepository
+    from src.storage.postgres_models import (
+        FlashcardDeckMetadataModel, MediaModel, QuizMetadataModel, UserModel,
+    )
+
+    url = _validate_test_database_url(os.environ["STUDY_BUDDY_TEST_DATABASE_URL"])
+    engine = create_engine(url)
+    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    suffix = os.urandom(8).hex()
+    user_id = f"phase6b-shared-user-{suffix}"
+    quiz_id = f"phase6b-shared-quiz-{suffix}"
+    deck_id = f"phase6b-shared-deck-{suffix}"
+    shared = tmp_path / f"shared-{suffix}.png"
+    shared.write_bytes(b"\x89PNG\r\n\x1a\nfirst")
+    metadata = PostgresContentMetadataRepository(sessions)
+    bodies = PostgresContentBodyRepository(
+        sessions, allow_legacy_paths=True, media_root=tmp_path / "managed-media"
+    )
+    quiz = {"id": quiz_id, "questions": [{
+        "id": "q1", "question": "Q", "type": "short_answer",
+        "answer": "A", "image_path": str(shared),
+    }]}
+    deck = {"id": deck_id, "cards": [{
+        "id": "c1", "front": "F", "back": "B", "image": str(shared),
+    }]}
+    try:
+        with sessions.begin() as session:
+            session.add(UserModel(
+                id=user_id, username=user_id, display_name="Phase 6B",
+                password_hash=PasswordHasher.hash("password1"), role="teacher",
+                status="active",
+            ))
+        assert metadata.import_quiz({
+            "id": quiz_id, "name": "Quiz", "moderation": {
+                "owner_id": user_id, "status": "published", "visibility": "public",
+            },
+        }, f"{quiz_id}.json")
+        assert metadata.import_flashcard_deck({
+            "id": deck_id, "name": "Deck", "moderation": {
+                "owner_id": user_id, "status": "published", "visibility": "public",
+            },
+        }, f"{deck_id}.json")
+        assert bodies.import_quiz(quiz)
+        assert bodies.import_flashcard_deck(deck)
+
+        shared.write_bytes(b"\x89PNG\r\n\x1a\nsecond-content")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(
+                lambda call: PostgresContentBodyRepository(
+                    sessions, allow_legacy_paths=True,
+                    media_root=tmp_path / "managed-media",
+                ).__getattribute__(
+                    call[0]
+                )(call[1]),
+                [("import_quiz", quiz), ("import_flashcard_deck", deck)],
+            ))
+        assert results == [True, True]
+        assert metadata.get_by_id("quiz", quiz_id)["content_version"] == 3
+        assert metadata.get_by_id("flashcard", deck_id)["content_version"] == 3
+        quiz_descriptor = bodies.get_media_descriptors("quiz", quiz_id)[0]
+        deck_descriptor = bodies.get_media_descriptors("flashcard", deck_id)[0]
+        assert quiz_descriptor["checksum_sha256"] == deck_descriptor["checksum_sha256"]
+        assert quiz_descriptor["content_version"] == deck_descriptor["content_version"] == 3
+    finally:
+        with sessions.begin() as session:
+            session.execute(delete(QuizMetadataModel).where(QuizMetadataModel.id == quiz_id))
+            session.execute(delete(FlashcardDeckMetadataModel).where(
+                FlashcardDeckMetadataModel.id == deck_id
+            ))
+            session.execute(delete(MediaModel).where(MediaModel.owner_id == user_id))
             session.execute(delete(UserModel).where(UserModel.id == user_id))
         engine.dispose()
 

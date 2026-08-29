@@ -68,6 +68,8 @@ def test_join_rotation_removal_and_class_only_discovery(tmp_path):
     assert classes.import_content_access(source, "quiz")
 
     assert classes.join_with_code("MATH 8X2K", "student-2")[0]
+    assert classes.has_active_content_access("student-2", "quiz", "quiz-1")
+    assert not classes.has_active_content_access("student-2", "quiz", "missing")
     assert metadata.get_for_actor("student-2", "student", "available")[0]["id"] == "quiz-1"
     success, rotated = classes.rotate_code("quiz", "quiz-1", "teacher-1", "teacher")
     assert success and rotated != "MATH-8X2K"
@@ -80,6 +82,7 @@ def test_join_rotation_removal_and_class_only_discovery(tmp_path):
     assert classes.remove_member(
         "quiz", "quiz-1", "teacher-1", "teacher", "student-2"
     )[0]
+    assert not classes.has_active_content_access("student-2", "quiz", "quiz-1")
     assert metadata.get_for_actor("student-2", "student", "available") == []
     engine.dispose()
 

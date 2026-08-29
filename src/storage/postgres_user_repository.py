@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from sqlalchemy import func, select, text
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
 from src.logic.access_control import can_ban_accounts, is_account_status, is_role
@@ -17,6 +17,7 @@ from src.storage.postgres_models import (
     UserModel,
     UserSettingsModel,
 )
+from src.storage.errors import RepositoryUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ class PostgresUserRepository:
                 return self._public_user(user)
         except SQLAlchemyError as exc:
             logger.error("PostgreSQL authentication error: %s", exc)
-            return None
+            raise RepositoryUnavailable("User storage is unavailable") from exc
 
     def get_all_users(self) -> list[Dict]:
         try:
@@ -124,7 +125,7 @@ class PostgresUserRepository:
                 return self._public_user(user) if user is not None else None
         except SQLAlchemyError as exc:
             logger.error("Could not load PostgreSQL user '%s': %s", user_id, exc)
-            return None
+            raise RepositoryUnavailable("User storage is unavailable") from exc
 
     def register(
         self, name: str, login: str, password: str
@@ -160,6 +161,8 @@ class PostgresUserRepository:
             return True, "Account created", result
         except IntegrityError:
             return False, "That login is already in use", None
+        except OperationalError as exc:
+            raise RepositoryUnavailable("User storage is unavailable") from exc
         except SQLAlchemyError as exc:
             logger.error("PostgreSQL registration failed: %s", exc)
             return False, "Unable to create account", None

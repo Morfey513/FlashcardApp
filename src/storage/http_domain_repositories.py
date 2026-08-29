@@ -121,7 +121,7 @@ class _HttpContentRepositoryBase:
             },
             authenticated=True,
         )
-        return str(body.get("stored_path")) if status == 200 and isinstance(body, dict) else str(source_path)
+        return str(body.get("media_id")) if status == 200 and isinstance(body, dict) else str(source_path)
 
 
 class HttpQuizRepository(_HttpContentRepositoryBase):

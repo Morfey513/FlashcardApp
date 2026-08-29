@@ -12,6 +12,7 @@ QUIZ_DIR = DATA_DIR / "quizzes"
 FLASHCARD_DIR = DATA_DIR / "flashcards"
 IMAGE_DIR = DATA_DIR / "images"
 AUDIO_DIR = DATA_DIR / "audio"
+MANAGED_MEDIA_DIR = DATA_DIR / "managed_media"
 LANGUAGES_DIR = DATA_DIR / "languages"
 # Log Files
 LOG_DIR = BASE_DIR / "logs"
@@ -79,6 +80,7 @@ def ensure_directories():
         FLASHCARD_DIR,
         IMAGE_DIR,
         AUDIO_DIR,
+        MANAGED_MEDIA_DIR,
         LANGUAGES_DIR,
         LOG_DIR
     ]

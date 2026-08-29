@@ -87,12 +87,31 @@ class QuizListRow(QFrame):
             chip.setEnabled(False)
         layout.addWidget(chip)
 
-        if quiz.get("can_download"):
-            offline = QPushButton("Update available" if quiz.get("update_available") else ("Downloaded" if quiz.get("downloaded") else "Keep offline"))
+        if (
+            quiz.get("can_download") or quiz.get("downloaded")
+            or quiz.get("offline_state") in {"locked", "download_unavailable"}
+        ):
+            offline_state = quiz.get("offline_state")
+            offline_text = {
+                "update_available": "Update now", "updating": "Updating...",
+                "update_failed": "Update failed — Retry", "stale": "Offline / stale",
+                "synchronized": "Synchronized", "available_offline": "Available offline",
+                "locked": "Locked", "download_unavailable": "Offline unavailable",
+            }.get(offline_state, "Keep offline")
+            offline = QPushButton(offline_text)
             offline.setObjectName("content_offline_btn")
-            offline.setEnabled(not quiz.get("downloaded") or bool(quiz.get("update_available")))
+            offline.setEnabled(bool(quiz.get("can_download")) and (
+                not quiz.get("downloaded")
+                or offline_state in {"update_available", "update_failed", "stale"}
+            ))
             offline.clicked.connect(self.keep_offline.emit)
             layout.addWidget(offline)
+        if quiz.get("media_state") in {"partially_available", "partial", "unavailable"}:
+            media_label = QLabel("Media unavailable")
+            media_label.setObjectName("content_media_state")
+            layout.addWidget(media_label)
+        if quiz.get("downloaded_bytes"):
+            layout.addWidget(QLabel(f"{int(quiz['downloaded_bytes']):,} bytes"))
 
 
     def mousePressEvent(self, event):
@@ -114,10 +133,15 @@ class QuizViewer(QWidget):
         self.controller = controller
         self.translator = get_translator()
         self.library = ContentLibrary(quiz_repository=getattr(controller, "repo", None))
+        base_repository = getattr(controller, "repo", None)
+        configure = getattr(controller, "configure_downloaded_content", None)
+        if callable(configure):
+            configure(self.library, base_repository)
         self._install_library_repository()
 
         self.setMinimumSize(900, 800)
         self.return_to_review = False
+        self._session_cleanup_done = False
         self.answer_group = []
         self.answer_input = None
         self.countdown_timer = QTimer(self)
@@ -233,7 +257,13 @@ class QuizViewer(QWidget):
             return
 
         quiz_name = item.data(Qt.ItemDataRole.UserRole) or item.text()
+        self._session_cleanup_done = False
         if mode == "test":
+            selected = getattr(self, "quiz_items", {}).get(quiz_name, {})
+            if selected.get("source") == "downloaded":
+                QMessageBox.information(self, "Assessment unavailable offline",
+                    "Downloaded quizzes support practice only. Assessments require the online server.")
+                return
             policy = self.controller.get_test_policy(quiz_name)
             if policy and policy.get("due_expired"):
                 QMessageBox.information(
@@ -806,18 +836,25 @@ class QuizViewer(QWidget):
             self.update_ui_with_question(next_card)
 
     def return_to_main(self):
-        self.controller.abandon_test_attempt()
+        self._abandon_session_once()
         self.finished.emit()
 
     def return_to_menu(self):
-        self.controller.abandon_test_attempt()
+        self._abandon_session_once()
         self.countdown_timer.stop()
         self.test_timer_label.hide()
         self.refresh_quiz_list()
         self.stack.setCurrentWidget(self.menu_panel)
 
-    def closeEvent(self, event):
+    def _abandon_session_once(self):
+        if self._session_cleanup_done:
+            return
+        self._session_cleanup_done = True
+        self.countdown_timer.stop()
         self.controller.abandon_test_attempt()
+
+    def closeEvent(self, event):
+        self._abandon_session_once()
         super().closeEvent(event)
 
     def _start_test_countdown(self):
@@ -912,22 +949,41 @@ class QuizViewer(QWidget):
         known_ids = {str(item.get("id") or item.get("file")) for item in quizzes}
         for cached in self.library.list_downloaded("quiz"):
             if str(cached["content_id"]) not in known_ids:
+                accessible = self.library.can_access(
+                    cached["manifest"], self.controller.user_id
+                )
                 quizzes.append({
                     "id": cached["content_id"], "name": cached["name"],
                     "mastered": 0, "total": 0, "latest_test_percentage": None,
-                    "moderation_status": "locked", "visibility": cached["visibility"],
-                    "locked": not self.library.can_access(cached["manifest"], self.controller.user_id),
+                    "moderation_status": "published" if accessible else "locked",
+                    "visibility": cached["visibility"], "downloaded": accessible,
+                    "offline_state": "available_offline" if accessible else "locked",
+                    "locked": not accessible,
                 })
         for quiz in quizzes:
             content_id = str(quiz.get("id") or quiz.get("file"))
             cached = self.library.get_downloaded("quiz", content_id, self.controller.user_id)
+            if quiz.get("offline_download_allowed") is False:
+                quiz["offline_state"] = "download_unavailable"
             quiz["downloaded"] = cached is not None
             quiz["update_available"] = cached is not None and self.library.update_state(
                 "quiz", content_id, quiz.get("content_version"), self.controller.user_id
             ) == "update_available"
+            if cached is not None and getattr(self.controller, "downloaded_content", None):
+                state_loader = getattr(self.controller, "get_cached_content_state", None)
+                result = state_loader(content_id) if callable(state_loader) else None
+                if result and result.get("state") in {"synchronized", "available_offline"}:
+                    result = self.controller.check_downloaded_content(content_id) or result
+                quiz["offline_state"] = result.get("state") if result else None
+                quiz["locked"] = quiz["offline_state"] == "locked"
+                if result:
+                    quiz.update({key: result[key] for key in ("package_projection", "media_state", "downloaded_bytes") if key in result})
+            elif cached is not None:
+                quiz["offline_state"] = "available_offline"
             quiz["can_download"] = bool(
                 getattr(getattr(self.controller, "repo", None), "supports_offline_download", False)
                 and not quiz.get("locked")
+                and quiz.get("offline_download_allowed", True)
             )
             row = QuizListRow(quiz, t.t("quiz_view.quiz_progress", mastered=quiz["mastered"], total=quiz["total"]))
             item = QListWidgetItem()
@@ -944,29 +1000,12 @@ class QuizViewer(QWidget):
 
     def keep_quiz_offline(self, quiz):
         """Explicitly cache one currently visible remote quiz."""
-        if (quiz.get("downloaded") and not quiz.get("update_available")) or not hasattr(self.controller.repo, "load_quiz_questions"):
-            return False
-        body = {
-            "id": str(quiz.get("id") or quiz.get("file")),
-            "name": quiz["name"],
-            "questions": self.controller.repo.load_quiz_questions(quiz.get("file")),
-        }
-        if quiz.get("downloaded"):
-            if hasattr(self.controller.repo, "get_quiz_body"):
-                body = self.controller.repo.get_quiz_body(body["id"]) or {}
-            if body.get("content_version") != quiz.get("content_version"):
-                return False
-            self.library.refresh_download("quiz", body["id"], quiz, body, self.controller.user_id)
-        else:
-            self.library.store_download(
-            "quiz", body["id"], body, name=body["name"],
-            visibility=quiz.get("visibility", "public"),
-            owner_id=quiz.get("owner_id"),
-            allowed_account_ids=quiz.get("allowed_user_ids", []),
-                content_version=quiz.get("content_version"),
-            )
-        self.refresh_quiz_list()
-        return True
+        content_id = str(quiz.get("id") or quiz.get("file"))
+        if getattr(self.controller, "downloaded_content", None):
+            result = self.controller.update_downloaded_content(content_id)
+            self.refresh_quiz_list()
+            return bool(result and result.get("state") == "synchronized")
+        return False
 
     def _install_library_repository(self):
         base = getattr(self.controller, "repo", None)
@@ -988,6 +1027,10 @@ class QuizViewer(QWidget):
             row.set_selected(name == selected_name)
         if hasattr(self, "take_test_btn"):
             selected_quiz = getattr(self, "quiz_items", {}).get(selected_name)
+            if selected_quiz and selected_quiz.get("source") == "downloaded":
+                self.take_test_btn.setEnabled(False)
+                self.take_test_btn.setToolTip("Downloaded quizzes support practice only. Assessments require the online server.")
+                return
             policy_loader = getattr(self.controller, "get_test_policy_for_summary", None)
             if callable(policy_loader) and selected_quiz:
                 policy = policy_loader(selected_quiz)

@@ -25,6 +25,31 @@ from src.storage.http_learning_repository import HttpLearningRepository
 from src.storage.http_domain_repositories import HttpFlashcardRepository, HttpQuizRepository
 
 
+def test_http_content_body_adapter_exposes_practice_and_media_contracts():
+    calls = []
+
+    class User:
+        def _request(self, method, path, payload=None, authenticated=False):
+            calls.append((method, path, authenticated))
+            return 200, {"id": "quiz-1", "attachments": []}
+
+        def _request_bytes(self, method, path, authenticated=False):
+            calls.append((method, path, authenticated))
+            return 200, b"media"
+
+    repository = HttpContentBodyRepository(User())
+    assert repository.get_practice_package_result("quiz", "quiz-1")[0] == 200
+    assert repository.get_media_manifest_result("quiz", "quiz-1")[0] == 200
+    assert repository.get_media_bytes_result(
+        "quiz", "quiz-1", "media-1", 7
+    ) == (200, b"media")
+    assert calls == [
+        ("GET", "/api/v1/content/practice-packages/quiz/quiz-1", True),
+        ("GET", "/api/v1/content/media-manifests/quiz/quiz-1", True),
+        ("GET", "/api/v1/content/media/quiz/quiz-1/media-1?expected_content_version=7", True),
+    ]
+
+
 def test_http_quiz_assessment_adapter_contracts():
     calls = []
 
@@ -54,9 +79,13 @@ def test_http_quiz_checkpoint_adapter_reaches_fastapi_with_user_answer(identity_
     registration = _register(client, "checkpoint.adapter")
 
     class ContentStub:
-        def get_for_actor(self, _user_id, _role, _scope, kind):
+        def get_for_actor_by_id(self, _user_id, _role, kind, content_id):
             assert kind == "quiz"
-            return [{"id": "quiz-1"}]
+            assert content_id == "quiz-1"
+            return {"id": "quiz-1", "kind": "quiz", "status": "published"}
+
+        def get_for_actor(self, *_args):
+            raise AssertionError("single-item authorization must not expand the catalog")
 
     class LearningStub:
         def get_assessment(self, user_id, attempt_id):
@@ -90,13 +119,16 @@ def test_http_quiz_checkpoint_adapter_reaches_fastapi_with_user_answer(identity_
 from src.storage.repository_factory import create_flashcard_repository, create_quiz_repository
 from src.storage.postgres_class_repository import PostgresClassRepository
 from src.storage.postgres_content_metadata_repository import PostgresContentMetadataRepository
-from src.storage.postgres_models import Base, UserSessionModel
+from src.storage.postgres_models import Base, MediaModel, UserSessionModel
 from src.storage.postgres_session_repository import PostgresSessionRepository
 from src.storage.postgres_user_repository import PostgresUserRepository
+from src.storage.media_storage import resolve_managed_media
+from src.storage.errors import RepositoryUnavailable
 
 
 @pytest.fixture
-def identity_api(tmp_path):
+def identity_api(tmp_path, monkeypatch):
+    monkeypatch.setenv("STUDY_BUDDY_MEDIA_ROOT", str(tmp_path / "managed-media"))
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'identity_api.db'}")
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)
@@ -433,6 +465,11 @@ def test_content_metadata_api_and_http_adapter_enforce_ownership(identity_api):
     payload["name"] = "Stolen Name"
     assert other_content.save("quiz", payload) is None
     assert other_content.get_by_id("quiz", "quiz-api-1") is None
+    hidden_status, hidden_body = other_content.get_by_id_result(
+        "quiz", "quiz-api-1"
+    )
+    assert hidden_status == 404
+    assert not isinstance(hidden_body, dict) or "content_version" not in hidden_body
 
     _created, _message, admin = users.register("Admin", "content.admin", "password1")
     assert users.update_role(admin["id"], "admin")
@@ -675,8 +712,11 @@ def test_progress_endpoint_can_return_lightweight_display_items(
     headers = {"Authorization": f"Bearer {registration['access_token']}"}
 
     class ContentStub:
+        def get_for_actor_by_id(self, *_args):
+            return {"id": content_id, "kind": kind, "status": "published"}
+
         def get_for_actor(self, *_args):
-            return [{"id": content_id}]
+            raise AssertionError("single-item authorization must not expand the catalog")
 
     class LearningStub:
         def get_quiz_progress(self, *_args):
@@ -738,8 +778,11 @@ def test_progress_endpoint_prefers_item_projection_over_full_body(
     headers = {"Authorization": f"Bearer {registration['access_token']}"}
 
     class ContentStub:
+        def get_for_actor_by_id(self, *_args):
+            return {"id": content_id, "kind": kind, "status": "published"}
+
         def get_for_actor(self, *_args):
-            return [{"id": content_id}]
+            raise AssertionError("single-item authorization must not expand the catalog")
 
     class LearningStub:
         def get_quiz_progress(self, *_args):
@@ -980,6 +1023,31 @@ def test_quiz_body_api_preserves_authorization_redaction_and_all_types(identity_
     def headers(registration):
         return {"Authorization": f"Bearer {registration['access_token']}"}
 
+    student_metadata = client.get(
+        f"/api/v1/content/metadata/quiz/{public_source['id']}",
+        headers=headers(student),
+    ).json()
+    assert student_metadata["offline_download_allowed"] is True
+    assert student_metadata["package_projection"] == "practice_only"
+    assert client.get(
+        f"/api/v1/content/metadata/quiz/{public_source['id']}",
+        headers=headers(teacher),
+    ).json()["offline_download_allowed"] is True
+    assert client.get(
+        f"/api/v1/content/metadata/quiz/{class_source['id']}",
+        headers=headers(admin),
+    ).json()["offline_download_allowed"] is True
+    listed = client.get(
+        "/api/v1/content/metadata?scope=available&kind=quiz",
+        headers=headers(student),
+    ).json()
+    assert {
+        item["id"]: item["package_projection"] for item in listed
+    } == {
+        public_source["id"]: "practice_only",
+        class_source["id"]: "practice_only",
+    }
+
     owner_body = client.get(
         f"/api/v1/content/bodies/quiz/{public_source['id']}",
         headers=headers(teacher),
@@ -1012,6 +1080,20 @@ def test_quiz_body_api_preserves_authorization_redaction_and_all_types(identity_
             {"prompt": "P", "answer": None},
         ]
 
+    practice = client.get(
+        f"/api/v1/content/practice-packages/quiz/{public_source['id']}",
+        headers=headers(student),
+    ).json()
+    assert practice["package_type"] == "offline_practice"
+    assert [row["type"] for row in practice["questions"]] == [
+        "single_choice", "multiple_choice", "true_false", "short_answer",
+        "matching", "ordering",
+    ]
+    assert practice["questions"][0]["answer"] == "B"
+    assert practice["questions"][3]["answer"] == ["one", "two"]
+    assert practice["questions"][4]["pairs"] == [{"prompt": "P", "answer": "A"}]
+    assert practice["questions"][5]["answer"] == ["first", "second"]
+
     assert client.get(
         f"/api/v1/content/bodies/quiz/{class_source['id']}",
         headers=headers(outsider),
@@ -1041,6 +1123,17 @@ def test_quiz_body_api_preserves_authorization_redaction_and_all_types(identity_
         f"/api/v1/content/bodies/quiz/{public_source['id']}",
         headers=headers(teacher),
     ).json()["questions"][0]["id"] == "changed"
+
+    public_source["moderation"]["status"] = "banned"
+    assert metadata.import_quiz(public_source, "all-types-public.json")
+    assert client.get(
+        f"/api/v1/content/bodies/quiz/{public_source['id']}",
+        headers=headers(teacher),
+    ).status_code == 404
+    assert client.get(
+        f"/api/v1/content/bodies/quiz/{public_source['id']}",
+        headers=headers(admin),
+    ).status_code == 200
 
 
 def test_flashcard_body_api_preserves_visibility_roles_and_immediate_consistency(identity_api):
@@ -1082,8 +1175,12 @@ def test_flashcard_body_api_preserves_visibility_roles_and_immediate_consistency
         "hint": "Hint 1", "description": "Description 1",
         "audio": {"back": "first-back.mp3"},
     }]
+    # This setup models the trusted one-time legacy JSON importer. Runtime API
+    # writes remain in opaque-ID-only mode.
+    bodies.allow_legacy_paths = True
     for deck_id in (public_source["id"], class_source["id"]):
         assert bodies.import_flashcard_deck({"id": deck_id, "cards": cards})
+    bodies.allow_legacy_paths = False
 
     def headers(registration):
         return {"Authorization": f"Bearer {registration['access_token']}"}
@@ -1093,6 +1190,17 @@ def test_flashcard_body_api_preserves_visibility_roles_and_immediate_consistency
             f"/api/v1/content/bodies/flashcard/{deck_id}",
             headers=headers(registration),
         )
+
+    direct_metadata = client.get(
+        f"/api/v1/content/metadata/flashcard/{public_source['id']}",
+        headers=headers(student),
+    ).json()
+    assert direct_metadata["package_projection"] == "study"
+    listed_metadata = client.get(
+        "/api/v1/content/metadata?scope=available&kind=flashcard",
+        headers=headers(student),
+    ).json()
+    assert {item["package_projection"] for item in listed_metadata} == {"study"}
 
     owner_body = get(public_source["id"], teacher).json()
     admin_body = get(class_source["id"], admin).json()
@@ -1258,3 +1366,208 @@ def test_desktop_domain_repositories_complete_remote_content_workflow(identity_a
         teacher["id"], "teacher", user_repository=teacher_http
     ).get_deck_names()
     assert decks.delete_deck_permanently("Remote Deck")
+
+
+def test_content_scoped_media_manifest_and_bytes_are_authorized_and_versioned(
+    identity_api, tmp_path,
+):
+    client, users, sessions = identity_api
+    teacher = _register(client, "media.owner")
+    student = _register(client, "media.student")
+    outsider = _register(client, "media.outsider")
+    assert users.update_role(teacher["user"]["id"], "teacher")
+    metadata = PostgresContentMetadataRepository(sessions)
+    bodies = client.app.state.content_body_repository
+    image = tmp_path / "attached.png"
+    image_bytes = b"\x89PNG\r\n\x1a\nknown-image"
+    image.write_bytes(image_bytes)
+
+    media_source = {
+        "id": "media-quiz", "name": "media-quiz",
+        "moderation": {
+            "owner_id": teacher["user"]["id"], "status": "published",
+            "visibility": "class_only", "invite": {"code": "MEDIA-QUIZ"},
+            "enrollments": {student["user"]["id"]: {}},
+        },
+    }
+    assert metadata.import_quiz(media_source, "media-quiz.json")
+    assert PostgresClassRepository(sessions).import_content_access(media_source, "quiz")
+    for content_id in ("other-quiz",):
+        assert metadata.import_quiz({
+            "id": content_id, "name": content_id,
+            "moderation": {
+                "owner_id": teacher["user"]["id"], "status": "published",
+                "visibility": "public",
+            },
+        }, f"{content_id}.json")
+    teacher_headers = {"Authorization": f"Bearer {teacher['access_token']}"}
+    uploaded = client.post(
+        "/api/v1/content/media/quiz/media-quiz", headers=teacher_headers,
+        json={
+            "filename": "attached.png",
+            "content_base64": __import__("base64").b64encode(image_bytes).decode("ascii"),
+        },
+    )
+    assert uploaded.status_code == 200
+    media_id = uploaded.json()["media_id"]
+    assert "stored_path" not in uploaded.json()
+    assert bodies.import_quiz({
+        "id": "media-quiz", "questions": [{
+            "id": "q1", "question": "Question", "type": "short_answer",
+            "answer": "answer", "image_path": media_id,
+        }],
+    })
+    assert bodies.import_quiz({
+        "id": "other-quiz", "questions": [{
+            "id": "q2", "question": "Other", "type": "true_false",
+            "answer": True,
+        }],
+    })
+    headers = {"Authorization": f"Bearer {student['access_token']}"}
+    outsider_headers = {"Authorization": f"Bearer {outsider['access_token']}"}
+
+    manifest_response = client.get(
+        "/api/v1/content/media-manifests/quiz/media-quiz", headers=headers,
+    )
+    assert manifest_response.status_code == 200
+    assert client.get(
+        "/api/v1/content/media-manifests/quiz/media-quiz", headers=outsider_headers,
+    ).status_code == 404
+    manifest = manifest_response.json()
+    descriptor = manifest["attachments"][0]
+    storage_key = bodies.get_media_attachment(
+        "quiz", "media-quiz", descriptor["media_id"]
+    )["storage_key"]
+    managed_file = resolve_managed_media(storage_key)
+    assert descriptor["content_version"] == manifest["content_version"]
+    assert descriptor["content_id"] == "media-quiz"
+    assert descriptor["attachment_role"] == "image"
+    assert descriptor["size_bytes"] == len(image_bytes)
+    assert "storage_key" not in descriptor
+
+    package = client.get(
+        "/api/v1/content/practice-packages/quiz/media-quiz", headers=headers,
+    ).json()
+    assert str(image) not in str(package)
+    assert package["questions"][0]["media"] == [{
+        "media_id": descriptor["media_id"], "role": "image",
+    }]
+
+    media_path = (
+        f"/api/v1/content/media/quiz/media-quiz/{descriptor['media_id']}"
+        f"?expected_content_version={manifest['content_version']}"
+    )
+    response = client.get(media_path, headers=headers)
+    assert response.status_code == 200
+    assert response.content == image_bytes
+    assert response.headers["content-type"].startswith("image/png")
+    assert client.get(media_path, headers=outsider_headers).status_code == 404
+
+    assert client.get(
+        f"/api/v1/content/media/quiz/other-quiz/{descriptor['media_id']}"
+        f"?expected_content_version={manifest['content_version']}", headers=headers,
+    ).status_code == 404
+    assert client.get(
+        f"/api/v1/content/media/quiz/media-quiz/{descriptor['media_id']}"
+        f"?expected_content_version={manifest['content_version'] + 1}", headers=headers,
+    ).status_code == 409
+
+    with sessions.begin() as session:
+        media = session.get(MediaModel, descriptor["media_id"])
+        managed_key = media.storage_key
+        media.storage_key = str(image.resolve())
+    assert client.get(media_path, headers=headers).status_code == 409
+    with sessions.begin() as session:
+        session.get(MediaModel, descriptor["media_id"]).storage_key = managed_key
+
+    managed_file.write_bytes(b"changed-without-import")
+    assert client.get(media_path, headers=headers).status_code == 409
+    managed_file.unlink()
+    assert client.get(media_path, headers=headers).status_code == 404
+
+
+def test_repository_outage_is_http_503_not_authoritative_404(identity_api, monkeypatch):
+    client, _users, _sessions = identity_api
+    account = _register(client, "outage.reader")
+    headers = {"Authorization": f"Bearer {account['access_token']}"}
+
+    def unavailable(*_args, **_kwargs):
+        raise RepositoryUnavailable("database down")
+
+    monkeypatch.setattr(
+        client.app.state.content_repository, "get_for_actor_by_id", unavailable,
+    )
+    response = client.get(
+        "/api/v1/content/metadata/quiz/missing", headers=headers,
+    )
+    assert response.status_code == 503
+    assert response.status_code != 404
+
+
+def test_media_upload_and_body_writes_reject_unmanaged_references(identity_api, tmp_path):
+    client, users, _sessions = identity_api
+    teacher = _register(client, "secure.media.owner")
+    assert users.update_role(teacher["user"]["id"], "teacher")
+    headers = {"Authorization": f"Bearer {teacher['access_token']}"}
+    metadata = {
+        "id": "secure-media-quiz", "name": "Secure media", "status": "draft",
+        "visibility": "private", "source_path": "secure-media-quiz.json",
+    }
+    assert client.put(
+        "/api/v1/content/metadata/quiz/secure-media-quiz",
+        headers=headers, json=metadata,
+    ).status_code == 200
+
+    encoded = __import__("base64").b64encode(
+        b"\x89PNG\r\n\x1a\nsecure"
+    ).decode("ascii")
+    valid_upload = client.post(
+        "/api/v1/content/media/quiz/secure-media-quiz", headers=headers,
+        json={"filename": "safe.png", "content_base64": encoded},
+    )
+    assert valid_upload.status_code == 200
+    media_id = valid_upload.json()["media_id"]
+    for filename in ("../secret.png", str(tmp_path / "absolute.png")):
+        assert client.post(
+            "/api/v1/content/media/quiz/secure-media-quiz", headers=headers,
+            json={"filename": filename, "content_base64": encoded},
+        ).status_code == 400
+    assert client.post(
+        "/api/v1/content/media/quiz/secure-media-quiz", headers=headers,
+        json={
+            "filename": "pretend.png",
+            "content_base64": __import__("base64").b64encode(b"not an image").decode("ascii"),
+        },
+    ).status_code == 400
+
+    for raw_reference in (str(tmp_path / "secret.png"), "../secret.png", "data/images/x.png"):
+        response = client.put(
+            "/api/v1/content/bodies/quiz/secure-media-quiz", headers=headers,
+            json={
+                "id": "secure-media-quiz", "questions": [{
+                    "id": "q", "question": "Q", "type": "short_answer",
+                    "answer": "A", "image_path": raw_reference,
+                }],
+            },
+        )
+        assert response.status_code == 400
+
+    other = _register(client, "secure.media.other")
+    assert users.update_role(other["user"]["id"], "teacher")
+    other_headers = {"Authorization": f"Bearer {other['access_token']}"}
+    assert client.put(
+        "/api/v1/content/metadata/quiz/other-media-quiz", headers=other_headers,
+        json={
+            "id": "other-media-quiz", "name": "Other media", "status": "draft",
+            "visibility": "private", "source_path": "other-media-quiz.json",
+        },
+    ).status_code == 200
+    assert client.put(
+        "/api/v1/content/bodies/quiz/other-media-quiz", headers=other_headers,
+        json={
+            "id": "other-media-quiz", "questions": [{
+                "id": "q", "question": "Q", "type": "short_answer",
+                "answer": "A", "image_path": media_id,
+            }],
+        },
+    ).status_code == 400

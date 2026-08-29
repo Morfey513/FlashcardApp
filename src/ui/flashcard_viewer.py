@@ -151,12 +151,28 @@ class DeckListRow(QFrame):
             chip.setEnabled(False)
         layout.addWidget(chip)
 
-        if deck.get("can_download"):
-            offline = QPushButton("Update available" if deck.get("update_available") else ("Downloaded" if deck.get("downloaded") else "Keep offline"))
+        if deck.get("can_download") or deck.get("downloaded") or deck.get("offline_state") == "locked":
+            offline_state = deck.get("offline_state")
+            offline_text = {
+                "update_available": "Update now", "updating": "Updating...",
+                "update_failed": "Update failed — Retry", "stale": "Offline / stale",
+                "synchronized": "Synchronized", "available_offline": "Available offline",
+                "locked": "Locked",
+            }.get(offline_state, "Keep offline")
+            offline = QPushButton(offline_text)
             offline.setObjectName("content_offline_btn")
-            offline.setEnabled(not deck.get("downloaded") or bool(deck.get("update_available")))
+            offline.setEnabled(bool(deck.get("can_download")) and (
+                not deck.get("downloaded")
+                or offline_state in {"update_available", "update_failed", "stale"}
+            ))
             offline.clicked.connect(self.keep_offline.emit)
             layout.addWidget(offline)
+        if deck.get("media_state") in {"partially_available", "partial", "unavailable"}:
+            media_label = QLabel("Media unavailable")
+            media_label.setObjectName("content_media_state")
+            layout.addWidget(media_label)
+        if deck.get("downloaded_bytes"):
+            layout.addWidget(QLabel(f"{int(deck['downloaded_bytes']):,} bytes"))
 
 
     def mousePressEvent(self, event):
@@ -177,10 +193,15 @@ class FlashcardViewer(QWidget):
         self.controller = controller
         self.translator = get_translator()
         self.library = ContentLibrary(flashcard_repository=getattr(controller, "repo", None))
+        base_repository = getattr(controller, "repo", None)
+        configure = getattr(controller, "configure_downloaded_content", None)
+        if callable(configure):
+            configure(self.library, base_repository)
         self._install_library_repository()
         self.current_card_text = {"front": "", "back": "", "description": ""}
         self.current_hint_text = ""
         self.current_card_audio = {"front": "", "back": "", "hint": "", "description": ""}
+        self._starting_deck = False
 
         self.resize(750, 770)
         self.setMinimumSize(700, 720)
@@ -307,10 +328,13 @@ class FlashcardViewer(QWidget):
             print(f"Hard crash prevented in UI: {e}")
 
     def start_selected_deck(self):
+        if self._starting_deck:
+            return
         item = self.deck_list.currentItem()
         if not item:
             return
 
+        self._starting_deck = True
         try:
             deck_name = item.data(Qt.ItemDataRole.UserRole) or item.text()
             if self.controller.is_deck_complete(deck_name):
@@ -326,6 +350,8 @@ class FlashcardViewer(QWidget):
                 logger.error("Controller returned no card data.")
         except Exception as e:
             logger.exception(f"UI Error during deck start: {e}")
+        finally:
+            self._starting_deck = False
 
     def confirm_completed_deck_reset(self, deck_name):
         """Offer to reset a fully mastered deck before starting it again."""
@@ -741,11 +767,16 @@ class FlashcardViewer(QWidget):
         known_ids = {str(item.get("id") or item.get("file")) for item in decks}
         for cached in self.library.list_downloaded("flashcard"):
             if str(cached["content_id"]) not in known_ids:
+                accessible = self.library.can_access(
+                    cached["manifest"], self.controller.user_id
+                )
                 decks.append({
                     "id": cached["content_id"], "name": cached["name"],
                     "mastered": 0, "total": 0,
-                    "moderation_status": "locked", "visibility": cached["visibility"],
-                    "locked": not self.library.can_access(cached["manifest"], self.controller.user_id),
+                    "moderation_status": "published" if accessible else "locked",
+                    "visibility": cached["visibility"], "downloaded": accessible,
+                    "offline_state": "available_offline" if accessible else "locked",
+                    "locked": not accessible,
                 })
         for deck in decks:
             content_id = str(deck.get("id") or deck.get("file"))
@@ -754,6 +785,17 @@ class FlashcardViewer(QWidget):
             deck["update_available"] = cached is not None and self.library.update_state(
                 "flashcard", content_id, deck.get("content_version"), self.controller.user_id
             ) == "update_available"
+            if cached is not None and getattr(self.controller, "downloaded_content", None):
+                state_loader = getattr(self.controller, "get_cached_content_state", None)
+                result = state_loader(content_id) if callable(state_loader) else None
+                if result and result.get("state") in {"synchronized", "available_offline"}:
+                    result = self.controller.check_downloaded_content(content_id) or result
+                deck["offline_state"] = result.get("state") if result else None
+                deck["locked"] = deck["offline_state"] == "locked"
+                if result:
+                    deck.update({key: result[key] for key in ("media_state", "downloaded_bytes") if key in result})
+            elif cached is not None:
+                deck["offline_state"] = "available_offline"
             deck["can_download"] = bool(
                 getattr(getattr(self.controller, "repo", None), "supports_offline_download", False)
                 and not deck.get("locked")
@@ -780,29 +822,12 @@ class FlashcardViewer(QWidget):
 
     def keep_deck_offline(self, deck):
         """Explicitly cache one currently visible remote deck."""
-        if (deck.get("downloaded") and not deck.get("update_available")) or not hasattr(self.controller.repo, "load_deck_cards"):
-            return False
-        body = {
-            "id": str(deck.get("id") or deck.get("file")),
-            "name": deck["name"],
-            "cards": self.controller.repo.load_deck_cards(deck.get("file")),
-        }
-        if deck.get("downloaded"):
-            if hasattr(self.controller.repo, "get_deck_body"):
-                body = self.controller.repo.get_deck_body(body["id"]) or {}
-            if body.get("content_version") != deck.get("content_version"):
-                return False
-            self.library.refresh_download("flashcard", body["id"], deck, body, self.controller.user_id)
-        else:
-            self.library.store_download(
-            "flashcard", body["id"], body, name=body["name"],
-            visibility=deck.get("visibility", "public"),
-            owner_id=deck.get("owner_id"),
-            allowed_account_ids=deck.get("allowed_user_ids", []),
-                content_version=deck.get("content_version"),
-            )
-        self.refresh_deck_list()
-        return True
+        content_id = str(deck.get("id") or deck.get("file"))
+        if getattr(self.controller, "downloaded_content", None):
+            result = self.controller.update_downloaded_content(content_id)
+            self.refresh_deck_list()
+            return bool(result and result.get("state") == "synchronized")
+        return False
 
     def _install_library_repository(self):
         base = getattr(self.controller, "repo", None)

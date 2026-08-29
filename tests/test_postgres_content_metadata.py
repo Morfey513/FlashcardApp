@@ -1,4 +1,6 @@
+import pytest
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from src.logic.passwords import PasswordHasher
@@ -11,6 +13,18 @@ from src.storage.postgres_models import (
     QuizMetadataModel,
     UserModel,
 )
+from src.storage.errors import RepositoryUnavailable
+
+
+class _BrokenSessions:
+    def __call__(self):
+        raise OperationalError("SELECT 1", {}, RuntimeError("database down"))
+
+
+def test_operational_read_failure_is_not_reported_as_missing_content():
+    repository = PostgresContentMetadataRepository(_BrokenSessions())
+    with pytest.raises(RepositoryUnavailable):
+        repository.get_by_id("quiz", "quiz-1")
 
 
 def _repository(tmp_path):

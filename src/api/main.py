@@ -1,11 +1,11 @@
 """FastAPI entry point for the local server migration boundary."""
 
 import base64
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.responses import JSONResponse
 
 from src.api.schemas import (
     AccountStatusRequest,
@@ -14,6 +14,7 @@ from src.api.schemas import (
     ContentBodyRequest,
     MediaUploadRequest,
     MediaUploadResponse,
+    MediaManifestResponse,
     AttemptResolutionRequest,
     InvitationResponse,
     LearningProgressRequest,
@@ -40,8 +41,9 @@ from src.storage.postgres_class_repository import PostgresClassRepository
 from src.storage.postgres_learning_repository import PostgresLearningRepository
 from src.storage.postgres_content_body_repository import PostgresContentBodyRepository
 from src.storage.postgres_content_history_repository import PostgresContentHistoryRepository
+from src.storage.errors import RepositoryUnavailable
+from src.storage.media_storage import InvalidMedia, read_validated_media
 from src.logic.test_settings import normalize_test_settings
-from src.utils.paths import resolve_stored_path, to_stored_path
 
 
 bearer = HTTPBearer(auto_error=False)
@@ -84,6 +86,13 @@ def create_app(
     app.state.content_body_repository = content_body_repository
     app.state.content_history_repository = content_history_repository
 
+    @app.exception_handler(RepositoryUnavailable)
+    async def repository_unavailable(_request: Request, _exc: RepositoryUnavailable):
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"detail": "Persistence service is temporarily unavailable"},
+        )
+
     def current_token(
         credentials: Annotated[
             HTTPAuthorizationCredentials | None, Depends(bearer)
@@ -111,14 +120,27 @@ def create_app(
 
     def available_content(request: Request, user: dict, kind: str, content_id: str):
         try:
-            items = request.app.state.content_repository.get_for_actor(
-                user["id"], user["role"],
-                "all" if user["role"] == "admin" else "available", kind,
+            item = request.app.state.content_repository.get_for_actor_by_id(
+                user["id"], user["role"], kind, content_id,
             )
         except ValueError as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
-        if not any(item["id"] == content_id for item in items):
+        if item is None or (
+            item.get("status") == "banned" and user["role"] != "admin"
+        ):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Content was not found")
+        return item
+
+    def downloadable_metadata(item: dict, user: dict) -> dict:
+        """Describe whether the actor can safely cache the current body projection."""
+        result = dict(item)
+        # The downloadable quiz is the explicit offline-practice projection,
+        # never the redacted learner body or an assessment snapshot.
+        result["offline_download_allowed"] = item.get("status") != "banned"
+        result["package_projection"] = (
+            "practice_only" if item.get("kind") == "quiz" else "study"
+        )
+        return result
 
     def token_response(request: Request, user: dict) -> TokenResponse:
         token, expires_in = request.app.state.session_repository.create(user["id"])
@@ -335,9 +357,10 @@ def create_app(
         if scope == "all" and user["role"] != "admin":
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Administrator access required")
         try:
-            return request.app.state.content_repository.get_for_actor(
+            items = request.app.state.content_repository.get_for_actor(
                 user["id"], user["role"], scope, kind
             )
+            return [downloadable_metadata(item, user) for item in items]
         except ValueError as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
@@ -353,16 +376,14 @@ def create_app(
         user: Annotated[dict, Depends(current_user)],
     ):
         try:
-            allowed = request.app.state.content_repository.get_for_actor(
-                user["id"], user["role"],
-                "all" if user["role"] == "admin" else "available", kind,
+            item = request.app.state.content_repository.get_for_actor_by_id(
+                user["id"], user["role"], kind, content_id
             )
         except ValueError as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
-        item = next((entry for entry in allowed if entry["id"] == content_id), None)
         if item is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Content was not found")
-        return item
+        return downloadable_metadata(item, user)
 
     @app.put(
         "/api/v1/content/metadata/{kind}/{content_id}",
@@ -394,7 +415,9 @@ def create_app(
             request.app.state.content_history_repository.append_moderation(
                 kind, content_id, user["id"], payload.status, payload.review_note
             )
-        return request.app.state.content_repository.get_by_id(kind, content_id)
+        return downloadable_metadata(
+            request.app.state.content_repository.get_by_id(kind, content_id), user
+        )
 
     @app.delete("/api/v1/content/metadata/{kind}/{content_id}", tags=["content"])
     def delete_content_metadata(
@@ -569,7 +592,7 @@ def create_app(
         user: Annotated[dict, Depends(current_user)],
         include_items: bool = False,
     ):
-        available_content(request, user, kind, content_id)
+        metadata = available_content(request, user, kind, content_id)
         if kind == "quiz":
             progress = request.app.state.learning_repository.get_quiz_progress(
                 content_id, user["id"]
@@ -801,11 +824,10 @@ def create_app(
         kind: str, content_id: str, request: Request,
         user: Annotated[dict, Depends(current_user)],
     ):
-        available_content(request, user, kind, content_id)
+        metadata = available_content(request, user, kind, content_id)
         if kind == "quiz":
             # Learners receive an answer-less source projection.  Authors and
             # administrators retain the complete editable body.
-            metadata = request.app.state.content_repository.get_by_id("quiz", content_id)
             can_edit = user["role"] == "admin" or (
                 user["role"] == "teacher" and metadata and metadata.get("owner_id") == user["id"]
             )
@@ -819,6 +841,92 @@ def create_app(
         if body is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Content body was not found")
         return body
+
+    @app.get("/api/v1/content/practice-packages/{kind}/{content_id}", tags=["content"])
+    def practice_package(
+        kind: str, content_id: str, request: Request,
+        user: Annotated[dict, Depends(current_user)],
+    ):
+        metadata = available_content(request, user, kind, content_id)
+        try:
+            body = request.app.state.content_body_repository.get_practice_package(
+                kind, content_id
+            )
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        if body is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Content body was not found")
+        if int(body.get("content_version", -1)) != int(metadata["content_version"]):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Content changed during retrieval")
+        return body
+
+    @app.get(
+        "/api/v1/content/media-manifests/{kind}/{content_id}",
+        response_model=MediaManifestResponse,
+        tags=["content"],
+    )
+    def content_media_manifest(
+        kind: str, content_id: str, request: Request,
+        user: Annotated[dict, Depends(current_user)],
+    ):
+        metadata = available_content(request, user, kind, content_id)
+        try:
+            attachments = request.app.state.content_body_repository.get_media_descriptors(
+                kind, content_id
+            )
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        if attachments is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Content media was not found")
+        normalized_kind = "quiz" if kind == "quiz" else "flashcard"
+        version = int(metadata["content_version"])
+        if any(int(item["content_version"]) != version for item in attachments):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Content changed during retrieval")
+        return {
+            "content_id": content_id,
+            "content_kind": normalized_kind,
+            "content_version": version,
+            "attachments": attachments,
+        }
+
+    @app.get("/api/v1/content/media/{kind}/{content_id}/{media_id}", tags=["content"])
+    def download_content_media(
+        kind: str, content_id: str, media_id: str, expected_content_version: int,
+        request: Request, user: Annotated[dict, Depends(current_user)],
+    ):
+        metadata = available_content(request, user, kind, content_id)
+        if int(metadata["content_version"]) != int(expected_content_version):
+            raise HTTPException(status.HTTP_409_CONFLICT, "Content version changed")
+        try:
+            attachment = request.app.state.content_body_repository.get_media_attachment(
+                kind, content_id, media_id
+            )
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        if attachment is None or int(attachment["content_version"]) != int(expected_content_version):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Content media was not found")
+        if attachment.get("size_bytes") is None or attachment.get("checksum_sha256") is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Content media changed")
+        try:
+            data = read_validated_media(
+                attachment.pop("storage_key"), attachment["mime_type"],
+                int(attachment["size_bytes"]),
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Content media was not found") from exc
+        except (InvalidMedia, OSError) as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Content media changed") from exc
+        import hashlib
+        if hashlib.sha256(data).hexdigest() != attachment["checksum_sha256"]:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Content media changed")
+        return Response(
+            content=data,
+            media_type=attachment["mime_type"],
+            headers={
+                "X-Content-Version": str(expected_content_version),
+                "X-Checksum-SHA256": attachment["checksum_sha256"],
+            },
+        )
 
     @app.put("/api/v1/content/bodies/{kind}/{content_id}", tags=["content"])
     def save_content_body(
@@ -885,20 +993,12 @@ def create_app(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid media encoding") from exc
         if len(content) > 25 * 1024 * 1024:
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Media exceeds 25 MB")
-        filename = Path(payload.filename).name
-        if not filename or filename in {".", ".."}:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid media filename")
-        source_file = resolve_stored_path(metadata["source_path"])
-        media_dir = source_file.parent / "media"
-        media_dir.mkdir(parents=True, exist_ok=True)
-        target = media_dir / filename
-        counter = 2
-        while target.exists() and target.read_bytes() != content:
-            target = media_dir / f"{Path(filename).stem}_{counter}{Path(filename).suffix}"
-            counter += 1
-        if not target.exists():
-            target.write_bytes(content)
-        return {"stored_path": to_stored_path(target)}
+        try:
+            return request.app.state.content_body_repository.register_uploaded_media(
+                metadata["owner_id"], content, payload.filename,
+            )
+        except InvalidMedia as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
     @app.get("/api/v1/content/history/{kind}/{content_id}", tags=["content"])
     def content_history(

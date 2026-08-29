@@ -7,6 +7,7 @@ from src.utils.paths import resolve_stored_path
 from src.storage.repository_factory import (
     create_class_repository, create_flashcard_repository, create_moderation_repository,
 )
+from src.storage.downloaded_content_service import DownloadedContentService
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,27 @@ class FlashcardController:
         self.current_deck_id = ""
         self._prepared_deck_start = None
         self.translator = get_translator()
+        self.downloaded_content = None
         logger.info("FlashcardController initialized")
+
+    def configure_downloaded_content(self, library, base_repository=None):
+        """Attach lifecycle orchestration before wrapping the study repository."""
+        base = base_repository or self.repo
+        metadata = getattr(base, "metadata", None)
+        bodies = getattr(base, "bodies", None)
+        if metadata is not None and bodies is not None:
+            self.downloaded_content = DownloadedContentService(library, metadata, bodies)
+        return self.downloaded_content
+
+    def check_downloaded_content(self, content_id):
+        return self.downloaded_content.check("flashcard", content_id, self.user_id) if self.downloaded_content else None
+
+    def update_downloaded_content(self, content_id):
+        return self.downloaded_content.update("flashcard", content_id, self.user_id) if self.downloaded_content else None
+
+    def get_cached_content_state(self, content_id):
+        return (self.downloaded_content.get_cached_state("flashcard", content_id, self.user_id)
+                if self.downloaded_content else None)
 
     # =========================================================
     # DECK MANAGEMENT (For Viewer UI)

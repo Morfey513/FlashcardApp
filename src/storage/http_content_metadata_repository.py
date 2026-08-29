@@ -35,13 +35,20 @@ class HttpContentMetadataRepository:
         return self.get_all(kind, scope, refresh=True)
 
     def get_by_id(self, kind, content_id):
+        result = self.get_by_id_result(kind, content_id)
+        return result[1] if result[0] == 200 else None
+
+    def get_by_id_result(self, kind, content_id):
         code, body = self.user_repository._request(
             "GET", f"/api/v1/content/metadata/{kind}/{content_id}",
             authenticated=True,
         )
-        return dict(body) if code == 200 and isinstance(body, dict) else None
+        return code, dict(body) if code == 200 and isinstance(body, dict) else body
 
     def save(self, kind, payload):
+        payload = dict(payload)
+        payload.pop("offline_download_allowed", None)
+        payload.pop("package_projection", None)
         content_id = str(payload.get("id", ""))
         code, body = self.user_repository._request(
             "PUT", f"/api/v1/content/metadata/{kind}/{content_id}",

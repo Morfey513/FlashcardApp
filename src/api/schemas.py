@@ -95,6 +95,8 @@ class ContentMetadataResponse(BaseModel):
     updated_at: str | None
     content_version: int
     test_settings: dict[str, Any] | None = None
+    offline_download_allowed: bool = True
+    package_projection: Literal["practice_only", "study"]
 
 
 class JoinClassRequest(StrictRequest):
@@ -165,7 +167,30 @@ class MediaUploadRequest(StrictRequest):
 
 
 class MediaUploadResponse(BaseModel):
-    stored_path: str
+    media_id: str
+    mime_type: str
+    size_bytes: int
+    checksum_sha256: str
+
+
+class MediaDescriptorResponse(BaseModel):
+    media_id: str
+    content_id: str
+    content_kind: Literal["quiz", "flashcard"]
+    content_version: int
+    item_id: str
+    attachment_role: str
+    mime_type: str
+    size_bytes: int | None
+    checksum_sha256: str | None
+    required: bool = False
+
+
+class MediaManifestResponse(BaseModel):
+    content_id: str
+    content_kind: Literal["quiz", "flashcard"]
+    content_version: int
+    attachments: list[MediaDescriptorResponse]
 
 
 class AttemptResolutionRequest(StrictRequest):

@@ -14,6 +14,8 @@ from src.storage.postgres_models import (
     QuizMetadataModel,
     UserModel,
 )
+from src.storage.content_revision import advance_revision, lock_metadata
+from src.storage.errors import RepositoryUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,7 @@ class PostgresContentMetadataRepository:
                 return rows
         except SQLAlchemyError as exc:
             logger.error("Could not load PostgreSQL content metadata: %s", exc)
-            return []
+            raise RepositoryUnavailable("Content metadata is unavailable") from exc
 
     def get_by_id(self, kind: str, content_id: str):
         model, label = self._model_for(kind)
@@ -55,7 +57,7 @@ class PostgresContentMetadataRepository:
                 return self._public(item, label) if item is not None else None
         except SQLAlchemyError as exc:
             logger.error("Could not load PostgreSQL %s '%s': %s", kind, content_id, exc)
-            return None
+            raise RepositoryUnavailable("Content metadata is unavailable") from exc
 
     def get_owned_by(self, owner_id: str, kind=None) -> list[dict]:
         return [
@@ -87,6 +89,23 @@ class PostgresContentMetadataRepository:
                 )
             )
         ]
+
+    def get_for_actor_by_id(self, actor_id: str, actor_role: str, kind: str, content_id: str):
+        """Return one authorized metadata row without materializing the catalog."""
+        item = self.get_by_id(kind, content_id)
+        if item is None:
+            return None
+        if actor_role == "admin" or item["owner_id"] == str(actor_id):
+            return item
+        if item["status"] != "published":
+            return None
+        if item["visibility"] == "public":
+            return item
+        from src.storage.postgres_class_repository import PostgresClassRepository
+        allowed = PostgresClassRepository(self.session_factory).has_active_content_access(
+            actor_id, item["kind"], content_id
+        )
+        return item if allowed else None
 
     def save_for_actor(self, kind: str, payload: dict, actor_id: str, actor_role: str):
         if actor_role not in {"teacher", "admin"}:
@@ -134,7 +153,7 @@ class PostgresContentMetadataRepository:
                 return bool(result.rowcount)
         except SQLAlchemyError as exc:
             logger.error("Could not delete %s '%s': %s", kind, content_id, exc)
-            return False
+            raise RepositoryUnavailable("Content metadata is unavailable") from exc
 
     def _upsert(self, model, source, source_path, kind):
         content_id = str(source.get("id", "")).strip()
@@ -152,7 +171,8 @@ class PostgresContentMetadataRepository:
                     if session.get(UserModel, source_owner_id) is not None
                     else None
                 )
-                item = session.get(model, content_id)
+                # Serialize competing imports so revision increments cannot be lost.
+                item = lock_metadata(session, model, content_id)
                 previous = None if item is None else {
                     "name": item.name, "owner_id": item.owner_id,
                     "source_owner_id": item.source_owner_id,
@@ -197,9 +217,12 @@ class PostgresContentMetadataRepository:
                         "answer_review_policy": item.answer_review_policy,
                     },
                 )):
-                    item.content_version += 1
+                    advance_revision(item)
                 return True
-        except (SQLAlchemyError, ValueError, TypeError) as exc:
+        except SQLAlchemyError as exc:
+            logger.error("Could not import %s metadata '%s': %s", kind, content_id, exc)
+            raise RepositoryUnavailable("Content metadata is unavailable") from exc
+        except (ValueError, TypeError) as exc:
             logger.error("Could not import %s metadata '%s': %s", kind, content_id, exc)
             return False
 

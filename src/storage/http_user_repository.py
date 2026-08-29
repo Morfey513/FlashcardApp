@@ -20,6 +20,7 @@ class HttpUserRepository:
             base_url or os.getenv(API_URL_ENV, "http://127.0.0.1:8000")
         ).rstrip("/")
         self._requester = requester or self._urllib_request
+        self._byte_requester = requester or self._urllib_request_bytes
         self.timeout = float(timeout)
         self._token: str | None = None
         self._current_user: Dict | None = None
@@ -33,6 +34,24 @@ class HttpUserRepository:
 
     def _request(self, method: str, path: str, payload=None, authenticated=False):
         return self._requester(method, path, payload, self._headers(authenticated))
+
+    def _request_bytes(self, method: str, path: str, authenticated=False):
+        return self._byte_requester(
+            method, path, None, self._headers(authenticated)
+        )
+
+    def _urllib_request_bytes(self, method: str, path: str, payload, headers):
+        request = Request(
+            f"{self.base_url}{path}", headers=dict(headers), method=method
+        )
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                return response.status, response.read()
+        except HTTPError as exc:
+            return exc.code, exc.read()
+        except (URLError, TimeoutError, OSError) as exc:
+            logger.error("Study Buddy API byte request failed: %s", exc)
+            return 0, b""
 
     def _urllib_request(self, method: str, path: str, payload, headers):
         body = None
