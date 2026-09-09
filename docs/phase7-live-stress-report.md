@@ -35,14 +35,11 @@ application Git revision or stress-harness revision/hash.  The application
 revision recorded below applies to the August 31 run only; it must not be read
 as the exact harness revision for every historical artifact.
 
-Remaining assessment-concurrency coverage gaps are:
-
-- multiple different students concurrently starting the same assessment; and
-- multiple concurrent terminal submissions against the same attempt.
-
-Concurrent same-position checkpoints have schema protection and a passing
-race test, but that test does not explicitly assert that the resulting answer
-row count is exactly one.
+The September 8 expanded rerun closes the two assessment-concurrency gaps:
+multiple different authorized students and multiple terminal submissions. It
+also checks one persisted answer per attempt for the new profiles. The older
+same-position checkpoint test remains useful coverage, but does not itself
+assert an answer-row count.
 
 ## Test setup
 
@@ -102,7 +99,7 @@ Artifacts written:
 | Authentication ladder | PASS | c=1,2,4,8,16,32 all returned HTTP 200. p99 rose from 551.92 ms at c=1 to 2755.28 ms at c=32. |
 | Same-account sessions | PASS | c=2,5,10 all returned HTTP 200. Logout of one token did not invalidate sibling sessions. |
 | Progress concurrency | PASS | c=2,5,10 on same-account and different-account writes returned HTTP 200 with no unexpected failures. Final state remained a complete snapshot. |
-| Assessment contention | BLOCKED (this run only) | HTTP 403 for all c=2/5/10/20 starts prevented this run's intended path. Successful Aug. 29/30 and Sep. 2 validation is documented above. |
+| Assessment contention | PASS (expanded Sept. 8 rerun) | The historical Aug. 31 fixture was blocked by 403. The c=2/5/10/20 rerun exercised same-user, different-student, and terminal-submit contention with no unexpected results. |
 | Read load | PASS | c=25/50/100 completed with HTTP 200 plus expected 409s from protected/versioned media-path responses; no unexpected 5xx. |
 | Media/content workload | PASS | c=5/10/20/40 completed with HTTP 200 plus expected 409s; no unexpected 5xx. |
 | Mixed soak | PASS | 30 minutes at c=12 completed; 96,983 requests total; 83,315 successful and 13,668 expected 403s. |
@@ -172,6 +169,44 @@ a blocked/invalid fixture or authorization setup for August 31 only; it does
 not supersede the successful August 29/30 runs or September 2 race tests
 summarized above.
 
+### Assessment expanded rerun — 2026-09-08
+
+Run artifacts (JSON contains provenance and per-operation HTTP results):
+
+- `.temp/phase7/phase7-20260908-provenance-c2.json`
+- `.temp/phase7/phase7-20260908-provenance-c5.json`
+- `.temp/phase7/phase7-20260908-provenance-c10.json`
+- `.temp/phase7/phase7-20260908-provenance-c20.json`
+
+Each run used the dedicated `study_buddy_test` PostgreSQL database, a
+class-backed published assessment, active class membership, individually
+issued student sessions, burst shape, and one request per worker. The recorded
+application revision was `b29a62747aa9a0d5f7b247e7c514454b4f550ccf` on
+branch `main`. The harness source was uncommitted at run time, so its exact
+reproducibility identifier is SHA-256
+`170b65ac46ab83726d44718bae310b15705afba812319f943f7f75a9b7ff7c58`, not an
+invented Git revision. Each artifact records its unique fixture identity
+(`phase7-…`), fixture version `class-backed-assessment-v2`, target identifier
+`postgresql/study_buddy_test`, and pool settings. The harness uses
+`pool_pre_ping=true`, `max_overflow=0`, and `pool_size=max(5, concurrency)`;
+these are test-harness settings and did not alter production configuration.
+
+| c | Same-user starts | Different-student start/checkpoint/submit | Concurrent terminal submit | DB invariants | Unexpected results |
+|---:|---|---|---|---|---:|
+| 2 | 2×200; follow-up 409 | 2×200 / 2×200 / 2×200 | 1×200, 1×409 | all pass | 0 |
+| 5 | 5×200; follow-up 409 | 5×200 / 5×200 / 5×200 | 1×200, 4×409 | all pass | 0 |
+| 10 | 10×200; follow-up 409 | 10×200 / 10×200 / 10×200 | 1×200, 9×409 | all pass | 0 |
+| 20 | 20×200; follow-up 409 | 20×200 / 20×200 / 20×200 | 1×200, 19×409 | all pass | 0 |
+
+The harness verifies one active assessment for the same user/quiz, charged
+attempts within the configured limit, final submitted state, independent
+attempt ownership for every student, one answer per completed different-user
+attempt, and exactly one charged terminal transition/answer for the contested
+attempt. No unexpected 5xx or database-integrity result was recorded. The
+loopback server did log the expected database unique-key conflict while it
+collapsed same-user concurrent starts to the surviving active attempt; the
+HTTP results were all 200 and the invariant passed.
+
 ### Mixed soak
 
 - Start: 2026-08-31T13:08:04 UTC
@@ -218,6 +253,8 @@ Assessment contention:
 Successful assessment-contention evidence is retained separately in
 `phase7-live-20260829/assessment-cohort-c*.json`,
 `phase7-phase72-assessment-c*.json`, and the September 2 JUnit artifacts.
+The September 8 expanded rerun above is the current authoritative evidence
+for different-student and terminal-submit contention.
 
 No other confirmed correctness failure was observed in this live run.
 
@@ -240,5 +277,3 @@ Prefix-scoped cleanup removed the generated rows for this run. Verification afte
 
 - transient PostgreSQL failure injection
 - lock-wait/deadlock instrumentation beyond what the existing harness exposed
-- multiple-student assessment-start contention
-- concurrent terminal submissions against one assessment attempt
