@@ -22,8 +22,9 @@ Pixel-level rendering and most layout behavior remain manual checks.
 The runner appends complete output to `logs/test_results.log`.
 
 It also prints missing line and branch information, writes an interactive HTML
-report to `htmlcov/index.html`, and writes a machine-readable Cobertura report
-to `coverage.xml`. Both generated reports are ignored by Git. The command also
+report to `.temp/coverage/htmlcov/index.html`, and writes a machine-readable
+Cobertura report to `.temp/coverage/coverage.xml`. Both generated reports are
+ignored by Git. The command also
 checks the complete controller and utility layers. It fails if overall
 controller branch coverage or the Quiz/Test Mode controller drops below
 **80%**, or if utility coverage drops below **90%**.

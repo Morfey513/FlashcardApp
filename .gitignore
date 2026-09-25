@@ -11,6 +11,8 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest-temp/
+.pytest-tmp*/
+.phase*/
 .coverage
 coverage.xml
 htmlcov/
@@ -24,9 +26,23 @@ dist/
 
 # Machine-specific runtime state
 logs/
+cache/
 *.log
 data/settings.json
 data/flashcards/*/progress/*.json
 data/quizzes/*/progress/*.json
+/legacy/data/flashcards/*/progress/*.json
 
 *.spec
+
+# Generated test, diagnostic, and stress-test output.
+/.temp/
+/.csv/
+/artifacts/
+/.pytest-*/
+/.qa-*/
+/.phase6b-*/
+/phase7-live-*/
+/phase7-*.json
+/phase7-*.csv
+/phase7-*.log

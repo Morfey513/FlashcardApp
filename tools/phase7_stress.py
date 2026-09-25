@@ -29,6 +29,8 @@ import tempfile
 import socket
 import hashlib
 import subprocess
+import contextvars
+import re
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
@@ -90,6 +92,12 @@ PROFILES: dict[str, ProfileDefinition] = {
          OperationDefinition("restricted_denied", "GET", "/api/v1/content/bodies/quiz/{restricted_quiz_id}", (404,))),
         ("No account observes restricted content belonging to another actor.",),
     ),
+    "diagnostic-read": ProfileDefinition(
+        "diagnostic-read", "Temporary isolated SQL/pool timing for Preview and Practice Download only.",
+        (OperationDefinition("preview", "GET", "/api/v1/content/bodies/quiz/{quiz_id}"),
+         OperationDefinition("practice_download", "GET", "/api/v1/content/practice-packages/quiz/{quiz_id}")),
+        ("Temporary measurement only; no production behavior is exercised or changed.",),
+    ),
     "same-account-sessions": ProfileDefinition(
         "same-account-sessions", "Two devices for one account, including logout isolation.",
         (OperationDefinition("login_a", "POST", "/api/v1/auth/login"),
@@ -140,6 +148,7 @@ class RunConfig:
     soak_seconds: float = 15.0
     database_url: str = ""
     dry_run: bool = False
+    diagnostic: bool = False
 
     def validate(self) -> None:
         if self.profile != "all" and self.profile not in PROFILES:
@@ -277,7 +286,9 @@ def execute(config: RunConfig, operation: Callable[[], Observation]) -> list[Ope
 
 
 def selected_profiles(name: str) -> list[ProfileDefinition]:
-    return list(PROFILES.values()) if name == "all" else [PROFILES[name]]
+    # The instrumentation profile must never silently become part of the
+    # standard Phase 7 workload.
+    return [item for key, item in PROFILES.items() if key != "diagnostic-read"] if name == "all" else [PROFILES[name]]
 
 
 def run_provenance(config: RunConfig, fixture: dict) -> dict:
@@ -341,6 +352,99 @@ def public_config(config: RunConfig) -> dict:
     return result
 
 
+def _normalized_sql(statement: str) -> str:
+    """Keep SQL grouping stable without retaining bound values or credentials."""
+    return re.sub(r"\s+", " ", statement).strip()
+
+
+def _timings(values: list[float]) -> dict[str, float]:
+    return {
+        "average_ms": round(statistics.fmean(values), 2) if values else 0.0,
+        "p50_ms": round(percentile(values, .50) or 0, 2),
+        "p95_ms": round(percentile(values, .95) or 0, 2),
+        "p99_ms": round(percentile(values, .99) or 0, 2),
+    }
+
+
+def _summarize_diagnostic_traces(traces: list[dict], samples: list[dict]) -> dict:
+    """Summarize temporary isolated telemetry without retaining SQL text."""
+    grouped: dict[str, list[dict]] = {}
+    for trace in traces:
+        grouped.setdefault(trace["operation"], []).append(trace)
+    endpoints = {}
+    for operation, rows in sorted(grouped.items()):
+        sql_counts = [item["sql_statement_count"] for item in rows]
+        sql_ms = [item["sql_duration_ms"] for item in rows]
+        app_ms = [item["app_response_ms"] for item in rows]
+        pool_ms = [item["pool_checkout_wait_ms"] for item in rows]
+        non_sql_ms = [max(0.0, item["app_response_ms"] - item["sql_duration_ms"]) for item in rows]
+        boundary = lambda end, start: [max(0.0, (item.get(end) or item["request_received_at"]) - (item.get(start) or item["request_received_at"])) * 1000 for item in rows]
+        queue_ms = boundary("worker_acquired_at", "request_received_at")
+        handler_ms = boundary("handler_returned_at", "worker_acquired_at")
+        serialization_ms = boundary("serialization_complete_at", "handler_returned_at")
+        sent_ms = boundary("response_sent_at", "serialization_complete_at")
+        stages = {
+            stage: _timings([duration for item in rows for duration in item["stages"].get(stage, [])])
+            for stage in ("auth_session", "user_load", "authorization", "projection", "media_descriptors")
+        }
+        endpoints[operation] = {
+            "requests": len(rows),
+            "app_response_p50_ms": round(percentile(app_ms, .50) or 0, 2),
+            "app_response_p95_ms": round(percentile(app_ms, .95) or 0, 2),
+            "sql_statement_count_min": min(sql_counts),
+            "sql_statement_count_p50": percentile(sql_counts, .50),
+            "sql_statement_count_max": max(sql_counts),
+            "sql_duration_p50_ms": round(percentile(sql_ms, .50) or 0, 2),
+            "sql_duration_p95_ms": round(percentile(sql_ms, .95) or 0, 2),
+            "request_construction": _timings(app_ms),
+            "sql": _timings(sql_ms),
+            "non_sql_request_construction": _timings(non_sql_ms),
+            "pool_checkout_wait": _timings(pool_ms),
+            "boundaries": {
+                "a_request_received_to_b_worker_acquired": _timings(queue_ms),
+                "b_worker_acquired_to_c_handler_returned": _timings(handler_ms),
+                "c_handler_returned_to_d_serialization_complete": _timings(serialization_ms),
+                "d_serialization_complete_to_e_response_sent": _timings(sent_ms),
+            },
+            "handler_stages": stages,
+            "handler_thread_ids": sorted({thread_id for item in rows for thread_id in item["thread_ids"]}),
+            "pool_checkouts_per_request_p50": percentile([item["pool_checkouts"] for item in rows], .50),
+            "response_bytes_p50": percentile([item["response_bytes"] for item in rows], .50),
+        }
+    statement_groups: dict[tuple[str, str], list[float]] = {}
+    for trace in traces:
+        for item in trace["statements"]:
+            statement_groups.setdefault((trace["operation"], item["statement"]), []).append(item["duration_ms"])
+    statements = [
+        {"endpoint": endpoint, "statement": statement, "executions": len(values), **_timings(values)}
+        for (endpoint, statement), values in sorted(statement_groups.items())
+    ]
+    return {
+        "method": "temporary isolated middleware, AnyIO worker wrapper, repository wrappers, and SQLAlchemy pool/statement events",
+        "pre_registered_candidate_rule": {
+            "comparison": "c40 versus c20 p95",
+            "minimum_growth_ratio": 2.0,
+            "minimum_absolute_growth_ms": 100.0,
+            "minimum_c40_p95_ms": 200.0,
+            "multiple_qualifying_spans": "replicate every qualifying span on a second workstation before optimization",
+            "distributed_subthreshold_growth": "no actionable single bottleneck",
+        },
+        "runtime": {
+            "anyio_default_thread_limiter_total_tokens": traces[0].get("anyio_limiter_tokens") if traces else None,
+            "server_model": "one in-process Uvicorn server thread; no Uvicorn workers configured",
+        },
+        "limitations": [
+            "Pool checkout timing is QueuePool _do_get duration: it includes queue wait and, when applicable, connection creation/pre-ping; it is not a separately tagged server-side wait event.",
+            "SQL duration is driver execute time; it excludes Python ORM/projection and response encoding.",
+            "The (d)->(e) value is a loopback instrumentation sanity boundary, not a real network/TLS transport measurement; a large value must first be treated as timestamp-placement invalidity.",
+            "Repository wrappers measure named synchronous methods, not every internal Python instruction; unmatched handler work remains in (b)->(c).",
+        ],
+        "endpoints": endpoints,
+        "sql_statements": statements,
+        "resource_samples": samples,
+    }
+
+
 def _http(base_url: str, definition: OperationDefinition, *, token: str = "", body=None, values=None) -> Observation:
     path = definition.path.format(**(values or {}))
     data = None if body is None else json.dumps(body).encode("utf-8")
@@ -398,6 +502,187 @@ def _start_server(app):
     raise RuntimeError("loopback Uvicorn server did not become ready")
 
 
+def _install_diagnostics(app, engine, database_url: str):
+    """Attach temporary harness-only telemetry to one isolated app/engine."""
+    import anyio.to_thread
+    import functools
+    from sqlalchemy import event, text
+
+    request_trace: contextvars.ContextVar[dict | None] = contextvars.ContextVar("phase7_request_trace", default=None)
+    traces: list[dict] = []
+    traces_lock = threading.Lock()
+    samples: list[dict] = []
+    stop = threading.Event()
+
+    # These wrappers are deliberately installed on the short-lived repository
+    # instances created by this harness.  They do not alter application source
+    # or production routing, and provide the nested stages needed to interpret
+    # the otherwise monolithic synchronous handler boundary.
+    def timed_method(instance, method_name: str, stage: str):
+        original = getattr(instance, method_name)
+
+        @functools.wraps(original)
+        def wrapped(*args, **kwargs):
+            trace = request_trace.get()
+            started = time.perf_counter()
+            try:
+                return original(*args, **kwargs)
+            finally:
+                if trace is not None:
+                    trace["stages"].setdefault(stage, []).append((time.perf_counter() - started) * 1000)
+
+        setattr(instance, method_name, wrapped)
+        return instance, method_name, original
+
+    restored_methods = [
+        timed_method(app.state.session_repository, "resolve", "auth_session"),
+        timed_method(app.state.user_repository, "get_user_by_id", "user_load"),
+        timed_method(app.state.content_repository, "get_for_actor_by_id", "authorization"),
+        timed_method(app.state.content_body_repository, "get_quiz", "projection"),
+        timed_method(app.state.content_body_repository, "get_media_descriptors", "media_descriptors"),
+    ]
+
+    original_run_sync = anyio.to_thread.run_sync
+
+    async def timed_run_sync(func, *args, **kwargs):
+        """Mark first sync work as (b), and the endpoint return as (c)."""
+        trace = request_trace.get()
+        if trace is None:
+            return await original_run_sync(func, *args, **kwargs)
+
+        target = getattr(getattr(func, "func", func), "__name__", "")
+
+        def invoke():
+            if trace.get("worker_acquired_at") is None:
+                trace["worker_acquired_at"] = time.perf_counter()
+            trace["thread_ids"].append(threading.get_ident())
+            try:
+                return func(*args)
+            finally:
+                if target == trace["endpoint_function"]:
+                    trace["handler_returned_at"] = time.perf_counter()
+
+        return await original_run_sync(invoke, **kwargs)
+
+    anyio.to_thread.run_sync = timed_run_sync
+
+    @app.middleware("http")
+    async def phase7_diagnostic_middleware(request, call_next):
+        path_to_operation = {
+            "/api/v1/content/metadata": "available_metadata",
+            "/api/v1/content/bodies/quiz/": "preview",
+            "/api/v1/content/practice-packages/quiz/": "practice_download",
+            "/api/v1/content/media-manifests/quiz/": "media_manifest",
+            "/api/v1/content/media/quiz/": "media_read",
+        }
+        operation = next((name for prefix, name in path_to_operation.items() if request.url.path == prefix or request.url.path.startswith(prefix)), None)
+        if request.url.path.endswith("/missing"):
+            operation = "restricted_denied"
+        if operation is None:
+            return await call_next(request)
+        started = time.perf_counter()
+        endpoint_function = {"preview": "content_body", "practice_download": "practice_package"}.get(operation, "")
+        trace = {"operation": operation, "request_received_at": started, "endpoint_function": endpoint_function,
+                 "worker_acquired_at": None, "handler_returned_at": None, "thread_ids": [], "stages": {},
+                 "sql_statement_count": 0, "sql_duration_ms": 0.0,
+                 "pool_checkouts": 0, "pool_checkout_wait_ms": 0.0, "response_bytes": 0,
+                 "statements": []}
+        trace["anyio_limiter_tokens"] = anyio.to_thread.current_default_thread_limiter().total_tokens
+        token = request_trace.set(trace)
+        try:
+            response = await call_next(request)
+            # FastAPI has completed response validation/encoding when its
+            # response object returns to middleware.  Socket send remains a
+            # loopback sanity boundary and is intentionally not overclaimed.
+            trace["serialization_complete_at"] = time.perf_counter()
+            trace["response_sent_at"] = trace["serialization_complete_at"]
+            trace["response_bytes"] = int(response.headers.get("content-length") or 0)
+            return response
+        finally:
+            trace["app_response_ms"] = (time.perf_counter() - started) * 1000
+            request_trace.reset(token)
+            with traces_lock:
+                traces.append(trace)
+
+    original_do_get = engine.pool._do_get
+
+    def phase7_timed_do_get(*args, **kwargs):
+        trace = request_trace.get()
+        started = time.perf_counter()
+        try:
+            return original_do_get(*args, **kwargs)
+        finally:
+            if trace is not None:
+                trace["pool_checkout_wait_ms"] += (time.perf_counter() - started) * 1000
+
+    engine.pool._do_get = phase7_timed_do_get
+
+    @event.listens_for(engine, "checkout")
+    def phase7_checkout(_dbapi_connection, _connection_record, _connection_proxy):
+        trace = request_trace.get()
+        if trace is not None:
+            trace["pool_checkouts"] += 1
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def phase7_before_cursor_execute(_connection, _cursor, _statement, _parameters, context, _executemany):
+        context._phase7_started_at = time.perf_counter()
+        trace = request_trace.get()
+        if trace is not None:
+            trace["sql_statement_count"] += 1
+
+    @event.listens_for(engine, "after_cursor_execute")
+    def phase7_after_cursor_execute(_connection, _cursor, statement, _parameters, context, _executemany):
+        trace = request_trace.get()
+        started = getattr(context, "_phase7_started_at", None)
+        if trace is not None and started is not None:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            trace["sql_duration_ms"] += elapsed_ms
+            trace["statements"].append({"statement": _normalized_sql(statement), "duration_ms": elapsed_ms})
+
+    def sample_resources():
+        try:
+            import psutil
+            process = psutil.Process()
+        except ImportError:
+            process = None
+        from sqlalchemy import create_engine
+        sample_engine = create_engine(database_url, pool_pre_ping=True, pool_size=1, max_overflow=0)
+        try:
+            while not stop.is_set():
+                sample = {"timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+                if process is not None:
+                    with process.oneshot():
+                        sample.update({"process_cpu_percent": process.cpu_percent(None), "host_cpu_percent": psutil.cpu_percent(None), "process_rss_bytes": process.memory_info().rss,
+                                       "process_thread_count": process.num_threads(), "host_cpu_per_core_percent": psutil.cpu_percent(None, percpu=True)})
+                try:
+                    with sample_engine.connect() as connection:
+                        row = connection.execute(text("SELECT count(*) FILTER (WHERE state = 'active'), count(*) FILTER (WHERE state = 'active' AND wait_event_type IS NOT NULL) FROM pg_stat_activity WHERE datname = current_database()")).one()
+                    sample["postgres_active_sessions"] = row[0]
+                    sample["postgres_waiting_sessions"] = row[1]
+                except Exception as exc:
+                    sample["postgres_sample_error"] = type(exc).__name__
+                sample.update({"pool_size": engine.pool.size(), "pool_checked_out": engine.pool.checkedout(), "pool_checked_in": engine.pool.checkedin()})
+                with traces_lock:
+                    samples.append(sample)
+                stop.wait(1)
+        finally:
+            sample_engine.dispose()
+
+    sampler = threading.Thread(target=sample_resources, name="phase7-diagnostic-sampler", daemon=True)
+    sampler.start()
+
+    def finish() -> dict:
+        stop.set()
+        sampler.join(5)
+        with traces_lock:
+            engine.pool._do_get = original_do_get
+            anyio.to_thread.run_sync = original_run_sync
+            for instance, method_name, original in restored_methods:
+                setattr(instance, method_name, original)
+            return _summarize_diagnostic_traces(list(traces), list(samples))
+    return finish
+
+
 def run_live(config: RunConfig) -> tuple[list[OperationMetrics], dict]:
     """Run a small real-HTTP, PostgreSQL-backed scenario and clean its own data."""
     config.validate()
@@ -428,6 +713,7 @@ def run_live(config: RunConfig) -> tuple[list[OperationMetrics], dict]:
     previous_media_root = os.environ.get("STUDY_BUDDY_MEDIA_ROOT")
     base_url = None
     shutdown = None
+    diagnostics_finish = None
     try:
         os.environ["STUDY_BUDDY_MEDIA_ROOT"] = media_temp.name
         users = PostgresUserRepository(sessions)
@@ -438,6 +724,8 @@ def run_live(config: RunConfig) -> tuple[list[OperationMetrics], dict]:
         app = create_app(user_repository=users, session_repository=session_repo, content_repository=metadata,
                          class_repository=classes, learning_repository=PostgresLearningRepository(sessions),
                          content_body_repository=bodies, content_history_repository=PostgresContentHistoryRepository(sessions))
+        if config.diagnostic:
+            diagnostics_finish = _install_diagnostics(app, engine, config.database_url)
         teacher_id = f"{prefix}-teacher"
         # The different-student profile needs one distinct authorized identity
         # per worker, including c=20; do not silently reduce that contention.
@@ -490,6 +778,22 @@ def run_live(config: RunConfig) -> tuple[list[OperationMetrics], dict]:
                         index = next(cursor, 0)
                     return _http(base_url, definition, token=account_tokens[index % len(account_tokens)], values=values)
                 metrics.extend(execute(config, account_read))
+        if "diagnostic-read" in profiles:
+            # Intentionally narrow: this profile exists solely for temporary
+            # isolated attribution of the two suspected read paths.
+            for definition in (
+                OperationDefinition("preview", "GET", "/api/v1/content/bodies/quiz/{quiz_id}"),
+                OperationDefinition("practice_download", "GET", "/api/v1/content/practice-packages/quiz/{quiz_id}"),
+            ):
+                cursor = iter(range(config.concurrency * config.requests_per_worker))
+                cursor_lock = threading.Lock()
+
+                def diagnostic_read(definition=definition):
+                    with cursor_lock:
+                        index = next(cursor, 0)
+                    return _http(base_url, definition, token=account_tokens[index % len(account_tokens)], values=values)
+
+                metrics.extend(execute(config, diagnostic_read))
         if "same-account-sessions" in profiles:
             # Both devices read concurrently before logout; neither is invalidated by the other.
             metrics.extend(execute(config, lambda: _http(base_url, OperationDefinition("same_account_concurrent_read", "GET", "/api/v1/content/metadata"), token=token_a if int(time.time_ns()) % 2 else token_b)))
@@ -619,11 +923,15 @@ def run_live(config: RunConfig) -> tuple[list[OperationMetrics], dict]:
             # Same owner writes are intentionally omitted: published teacher content cannot be mutated by this API.
             # The concurrent assessment start above remains the hot-row write collision exercised safely.
             metrics.extend(aggregate([Observation("hot_row_deferred", None, 0, True, "published_content_write_policy")], .001))
-        return metrics, {
+        fixture = {
             "identity": prefix,
             "version": "class-backed-assessment-v2",
             "pool": {"pool_pre_ping": True, "pool_size": max(5, config.concurrency), "max_overflow": 0},
         }
+        if diagnostics_finish:
+            fixture["diagnostics"] = diagnostics_finish()
+            diagnostics_finish = None
+        return metrics, fixture
     finally:
         original_error = sys.exc_info()[0]
         cleanup_error = None
@@ -664,6 +972,8 @@ def run_live(config: RunConfig) -> tuple[list[OperationMetrics], dict]:
         except Exception as exc:
             cleanup_error = exc
         finally:
+            if diagnostics_finish:
+                diagnostics_finish()
             media_temp.cleanup()
             if previous_media_root is None:
                 os.environ.pop("STUDY_BUDDY_MEDIA_ROOT", None)
@@ -689,6 +999,7 @@ def main() -> int:
     parser.add_argument("--ramp-seconds", type=float, default=2.0)
     parser.add_argument("--soak-seconds", type=float, default=15.0)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--diagnostic", action="store_true", help="temporary in-process pool/SQL/resource telemetry for isolated test runs")
     parser.add_argument("--json-output", type=Path)
     parser.add_argument("--csv-output", type=Path)
     args = parser.parse_args()
@@ -697,7 +1008,7 @@ def main() -> int:
     args.csv_output = args.csv_output or default_csv
     config = RunConfig(args.profile, args.shape, args.concurrency, args.requests_per_worker,
                        args.ramp_seconds, args.soak_seconds,
-                       os.getenv("STUDY_BUDDY_TEST_DATABASE_URL", ""), args.dry_run)
+                       os.getenv("STUDY_BUDDY_TEST_DATABASE_URL", ""), args.dry_run, args.diagnostic)
     try:
         config.validate()
     except ValueError as exc:

@@ -126,7 +126,7 @@ progress, sessions, permissions, invitations, editor controllers, mocked
 audio/TTS behavior, and selected high-value UI behavior such as authentication
 validation, enrollment feedback, role-gated actions, and test-attempt gating.
 The normal command also creates
-an interactive report at `htmlcov/index.html`; visual PyQt and real-device
+an interactive report at `.temp/coverage/htmlcov/index.html`; visual PyQt and real-device
 output remain manual.
 
 See [docs/testing.md](docs/testing.md) for the complete test inventory and

@@ -97,6 +97,11 @@ class StudyRecordingUserRepository:
             return 200, {"id": "quiz-1", "name": "One Quiz", "content_version": 1,
                          "questions": [{"id": "q1", "type": "short_answer",
                                         "question": "Q", "answer": "A"}]}
+        if path == "/api/v1/content/practice-packages/quiz/quiz-1":
+            return 200, {"id": "quiz-1", "name": "One Quiz", "content_version": 1,
+                         "package_type": "offline_practice",
+                         "questions": [{"id": "q1", "type": "short_answer",
+                                        "question": "Q", "answer": "A"}]}
         if path == "/api/v1/content/bodies/flashcard/deck-1":
             return 200, {"id": "deck-1", "name": "One Deck", "content_version": 1,
                          "cards": [{"id": "c1", "front": "Q", "back": "A"}]}
@@ -234,7 +239,8 @@ def test_http_quiz_completion_and_practice_start_reuse_selected_body_and_progres
     assert controller.load_quiz_by_name("One Quiz", mode="practice")["id"] == "q1"
 
     paths = [path for _method, path, _authenticated in user.calls]
-    assert paths.count("/api/v1/content/bodies/quiz/quiz-1") == 1
+    assert paths.count("/api/v1/content/practice-packages/quiz/quiz-1") == 1
+    assert "/api/v1/content/bodies/quiz/quiz-1" not in paths
     assert paths.count("/api/v1/progress/quiz/quiz-1") == 1
     assert "/api/v1/quizzes/quiz-1/attempts" not in paths
     assert not any("kind=flashcard" in path for path in paths)
@@ -270,14 +276,15 @@ def test_http_test_policy_and_start_do_not_duplicate_selected_package(monkeypatc
     assert controller.load_quiz_by_name("One Quiz", mode="test")["id"] == "q1"
 
     paths = [path for _method, path, _authenticated in user.calls]
-    assert paths.count("/api/v1/content/bodies/quiz/quiz-1") == 1
+    assert paths.count("/api/v1/content/practice-packages/quiz/quiz-1") == 1
+    assert "/api/v1/content/bodies/quiz/quiz-1" not in paths
     assert paths.count("/api/v1/progress/quiz/quiz-1") == 1
     assert paths.count("/api/v1/quizzes/quiz-1/attempts") == 1
     assert not any("kind=flashcard" in path for path in paths)
     calls = [(method, path) for method, path, _auth in user.calls]
     assert calls[:4] == [
         ("GET", "/api/v1/content/metadata?scope=available&kind=quiz"),
-        ("GET", "/api/v1/content/bodies/quiz/quiz-1"),
+        ("GET", "/api/v1/content/practice-packages/quiz/quiz-1"),
         ("GET", "/api/v1/progress/quiz/quiz-1"),
         ("GET", "/api/v1/quizzes/quiz-1/attempts"),
     ]

@@ -6,7 +6,7 @@ import pytest
 from tools.phase7_stress import (
     Observation, PROFILES, RunConfig, aggregate, selected_profiles,
     public_config, validate_database_url, worker_start_delay, write_results,
-    cleanup_plan,
+    cleanup_plan, _summarize_diagnostic_traces,
 )
 
 
@@ -25,7 +25,7 @@ def test_database_guard_refuses_non_dedicated_postgresql(url):
 def test_profile_definitions_cover_required_stress_categories():
     assert set(PROFILES) == {
         "multi-account", "same-account-sessions", "assessment-cohort",
-        "assessment-different-students", "assessment-terminal-submit", "hot-row",
+        "assessment-different-students", "assessment-terminal-submit", "hot-row", "diagnostic-read",
     }
     assert any(item.name == "session_b_stays_valid" for item in PROFILES["same-account-sessions"].operations)
     assert any(409 in item.expected_statuses for item in PROFILES["assessment-cohort"].operations)
@@ -65,3 +65,24 @@ def test_cleanup_plan_is_explicit_and_dependency_safe():
     assert plan.index("quiz_attempt_answers") < plan.index("quiz_attempts") < plan.index("quizzes")
     assert plan.index("class_members") < plan.index("classes")
     assert "media" in plan and plan.index("media") < plan.index("users")
+
+
+def test_temporary_diagnostic_summary_keeps_boundaries_and_runtime_contract():
+    trace = {
+        "operation": "preview", "request_received_at": 1.0,
+        "worker_acquired_at": 1.025, "handler_returned_at": 1.250,
+        "serialization_complete_at": 1.275, "response_sent_at": 1.275,
+        "thread_ids": [123], "anyio_limiter_tokens": 40,
+        "stages": {"auth_session": [10.0], "user_load": [11.0], "authorization": [12.0], "projection": [100.0]},
+        "sql_statement_count": 1, "sql_duration_ms": 15.0,
+        "pool_checkouts": 1, "pool_checkout_wait_ms": 0.05,
+        "response_bytes": 99, "app_response_ms": 275.0,
+        "statements": [],
+    }
+    summary = _summarize_diagnostic_traces([trace], [])
+    endpoint = summary["endpoints"]["preview"]
+    assert summary["runtime"]["anyio_default_thread_limiter_total_tokens"] == 40
+    assert endpoint["boundaries"]["a_request_received_to_b_worker_acquired"]["p95_ms"] == 25.0
+    assert endpoint["boundaries"]["b_worker_acquired_to_c_handler_returned"]["p95_ms"] == 225.0
+    assert endpoint["handler_stages"]["projection"]["p95_ms"] == 100.0
+    assert endpoint["handler_thread_ids"] == [123]

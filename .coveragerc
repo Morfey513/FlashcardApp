@@ -11,7 +11,7 @@ exclude_lines =
     if __name__ == .__main__.:
 
 [html]
-directory = htmlcov
+directory = .temp/coverage/htmlcov
 
 [xml]
-output = coverage.xml
+output = .temp/coverage/coverage.xml

@@ -138,6 +138,17 @@ class HttpQuizRepository(_HttpContentRepositoryBase):
         body = self._body(_content_id(value)) or {}
         return list(body.get("questions") or [])
 
+    def load_practice_quiz_questions(self, value):
+        """Load the complete, practice-only projection for a learner session.
+
+        The ordinary content-body endpoint intentionally redacts grading data
+        for non-owner learners.  That endpoint remains the source for preview
+        and editor flows; an interactive practice session instead needs the
+        explicitly authorized practice package to construct question cards.
+        """
+        body = self.bodies.get_practice_package("quiz", _content_id(value)) or {}
+        return list(body.get("questions") or [])
+
     def get_quiz_body(self, value):
         return self._body(_content_id(value))
 

@@ -1,6 +1,6 @@
 {
     "id": "8f348fc7-0545-413c-96c6-52b0800b4ef0",
-    "name": "Sample Deck Copy",
+    "name": "Media Demo Flashcards",
     "cards": [
         {
             "id": "da37e2d4-5d91-40ea-9774-a27e7e5f5ba7",
@@ -28,11 +28,11 @@
     ],
     "moderation": {
         "owner_id": "legacy",
-        "status": "draft",
+        "status": "published",
         "visibility": "public",
         "allowed_user_ids": [],
         "reviewed_by": "1",
         "reviewed_at": "2026-08-08T18:53:43.019850+00:00",
-        "review_note": "Unbanned by an administrator. Edit the content and submit it for review again."
+        "review_note": "Canonical demonstration content."
     }
 }

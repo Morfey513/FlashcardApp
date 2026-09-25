@@ -504,6 +504,8 @@ class PostgresLearningRepository:
         model, field = self._progress_model(kind)
         try:
             with self.session_factory.begin() as session:
+                if not self._lock_progress_user(session, user_id):
+                    return False
                 result = session.execute(delete(model).where(
                     model.user_id == str(user_id),
                     getattr(model, field) == str(content_id),
@@ -517,6 +519,8 @@ class PostgresLearningRepository:
         model, _field = self._progress_model(kind)
         try:
             with self.session_factory.begin() as session:
+                if not self._lock_progress_user(session, user_id):
+                    return 0
                 result = session.execute(delete(model).where(
                     model.user_id == str(user_id)
                 ))
@@ -595,7 +599,12 @@ class PostgresLearningRepository:
             return False
         try:
             with self.session_factory.begin() as session:
-                if session.get(UserModel, user_id) is None or session.get(content_model, content_id) is None:
+                # Progress is a complete client snapshot.  Locking the stable
+                # parent user row also serializes the initially-empty case,
+                # where no progress row yet exists to lock.  Save, reset, and
+                # clear all take this same lock, so the last committed whole
+                # snapshot wins without mixed collections or duplicate keys.
+                if not self._lock_progress_user(session, user_id) or session.get(content_model, content_id) is None:
                     return False
                 session.execute(delete(model).where(
                     model.user_id == user_id, getattr(model, content_field) == content_id
@@ -614,6 +623,13 @@ class PostgresLearningRepository:
         except (SQLAlchemyError, ValueError, TypeError) as exc:
             logger.error("Could not import progress for '%s': %s", content_id, exc)
             return False
+
+    @staticmethod
+    def _lock_progress_user(session, user_id: str) -> bool:
+        """Serialize a user's progress mutations, including empty collections."""
+        return session.scalar(select(UserModel).where(
+            UserModel.id == str(user_id)
+        ).with_for_update()) is not None
 
     def _get_progress(self, model, content_field, content_id, user_id, item_field):
         if not self._authenticated_user(user_id):

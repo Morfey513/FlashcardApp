@@ -986,7 +986,7 @@ def test_quiz_body_api_preserves_authorization_redaction_and_all_types(identity_
     bodies = client.app.state.content_body_repository
 
     public_source = {
-        "id": "all-types-public", "name": "All Types Public",
+        "id": "all-types-public", "name": "General Quiz (Copy)",
         "moderation": {
             "owner_id": teacher["user"]["id"], "status": "published",
             "visibility": "public",
@@ -1093,6 +1093,62 @@ def test_quiz_body_api_preserves_authorization_redaction_and_all_types(identity_
     assert practice["questions"][3]["answer"] == ["one", "two"]
     assert practice["questions"][4]["pairs"] == [{"prompt": "P", "answer": "A"}]
     assert practice["questions"][5]["answer"] == ["first", "second"]
+
+    # A non-owner, non-downloaded practice session must use the complete
+    # practice projection.  The ordinary body above stays redacted for this
+    # same student, so this covers the exact HTTP/controller path that used to
+    # hand redacted matching pairs to QuestionFactory.
+    student_http = _adapter_for(client)
+    assert student_http.authenticate("quiz.body.student", "password1")["id"] == student["user"]["id"]
+    student_quizzes = HttpQuizRepository(student_http)
+    assert "answer" not in student_quizzes.load_quiz_questions(public_source["id"])[0]
+    complete_questions = student_quizzes.load_practice_quiz_questions(public_source["id"])
+    assert complete_questions == practice["questions"]
+
+    controller = QuizController(
+        student["user"]["id"], repo=student_quizzes, role="student",
+        user_repository=student_http,
+    )
+    assert controller.is_quiz_complete("General Quiz (Copy)") is False
+    current = controller.load_quiz_by_name("General Quiz (Copy)", mode="practice")
+    assert current is not None
+    cards = {card.type: card for card in controller.quiz.cards}
+    assert set(cards) == {
+        "single_choice", "multiple_choice", "true_false", "short_answer",
+        "matching", "ordering",
+    }
+    assert cards["single_choice"].answer == "B"
+    assert cards["multiple_choice"].answer == ["A", "C"]
+    assert cards["true_false"].answer is True
+    assert cards["short_answer"].answer == ["one", "two"]
+    assert cards["matching"].pairs == [{"prompt": "P", "answer": "A"}]
+    assert cards["ordering"].answer == ["first", "second"]
+
+    # Public tests are locally constructed (unlike the class-only remote
+    # assessment branch), so they require the same complete projection.
+    assert controller.load_quiz_by_name("General Quiz (Copy)", mode="test") is not None
+    test_cards = {card.type: card for card in controller.quiz.cards}
+    assert set(test_cards) == set(cards)
+    assert test_cards["single_choice"].answer == "B"
+    assert test_cards["multiple_choice"].answer == ["A", "C"]
+    assert test_cards["true_false"].answer is True
+    assert test_cards["short_answer"].answer == ["one", "two"]
+    assert test_cards["matching"].pairs == [{"prompt": "P", "answer": "A"}]
+    assert test_cards["ordering"].answer == ["first", "second"]
+
+    # Copying is an owner/editor operation and continues to use the complete
+    # generic body, preserving the canonical matching-pair representation.
+    teacher_http = _adapter_for(client)
+    assert teacher_http.authenticate("quiz.body.teacher", "password1")["id"] == teacher["user"]["id"]
+    teacher_quizzes = HttpQuizRepository(teacher_http)
+    assert teacher_quizzes.copy_quiz("General Quiz (Copy)", "General Quiz (Copy) (Copy)")
+    copied = next(
+        item for item in teacher_quizzes.get_owned_quizzes()
+        if item["name"] == "General Quiz (Copy) (Copy)"
+    )
+    copied_questions = teacher_quizzes.load_quiz_questions(copied["file"])
+    assert copied_questions[4]["pairs"] == [{"prompt": "P", "answer": "A"}]
+    assert copied_questions[4]["id"] != "matching"
 
     assert client.get(
         f"/api/v1/content/bodies/quiz/{class_source['id']}",

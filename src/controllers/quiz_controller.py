@@ -251,7 +251,7 @@ class QuizController:
             self.current_quiz_path = meta["file"]
             questions = (
                 prepared["questions"] if prepared is not None
-                else self.repo.load_quiz_questions(meta["file"])
+                else self._load_practice_quiz_questions(meta["file"])
             )
 
             if not questions:
@@ -688,11 +688,22 @@ class QuizController:
         meta = next((item for item in self._visible_quizzes() if item["name"] == name), None)
         if not meta or meta.get("moderation_status") == "banned":
             return None
-        questions = self.repo.load_quiz_questions(meta["file"])
+        questions = self._load_practice_quiz_questions(meta["file"])
         progress = self.repo.get_quiz_progress(meta["file"], self.user_id)
         return {
             "name": name, "meta": meta, "questions": questions, "progress": progress,
         }
+
+    def _load_practice_quiz_questions(self, value):
+        """Use a practice projection when the repository exposes one.
+
+        Local and composite repositories retain the historical generic loader;
+        only the HTTP repository needs the distinct authorized package endpoint.
+        """
+        load_practice = getattr(self.repo, "load_practice_quiz_questions", None)
+        if callable(load_practice):
+            return load_practice(value)
+        return self.repo.load_quiz_questions(value)
 
     def _get_current_card_data(self):
         """Extract card data for UI rendering."""

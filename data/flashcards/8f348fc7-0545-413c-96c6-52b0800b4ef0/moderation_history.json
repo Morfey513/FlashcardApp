@@ -1,20 +1,8 @@
 [
     {
-        "timestamp": "2026-08-07T20:02:57.826743+00:00",
-        "action": "pending_review",
+        "timestamp": "2026-08-27T00:00:00+00:00",
+        "action": "published",
         "actor_id": "1",
-        "note": ""
-    },
-    {
-        "timestamp": "2026-08-08T13:35:18.958057+00:00",
-        "action": "banned",
-        "actor_id": "1",
-        "note": "zxc"
-    },
-    {
-        "timestamp": "2026-08-08T18:53:43.019850+00:00",
-        "action": "draft",
-        "actor_id": "1",
-        "note": "Unbanned by an administrator. Edit the content and submit it for review again."
+        "note": "Canonical demonstration content."
     }
 ]

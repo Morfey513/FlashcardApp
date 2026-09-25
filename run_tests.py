@@ -10,6 +10,7 @@ from src.config import TEST_LOG_FILE
 
 def main():
     project_root = Path(__file__).resolve().parent
+    test_output_root = project_root / ".temp"
     test_result = run(
         [
             sys.executable,
@@ -17,7 +18,7 @@ def main():
             "pytest",
             str(project_root / "tests"),
             "-q",
-            f"--basetemp={project_root / '.pytest-temp'}",
+            f"--basetemp={test_output_root / 'pytest'}",
             "--cov=src",
             f"--cov-config={project_root / '.coveragerc'}",
             "--cov-report=term-missing",

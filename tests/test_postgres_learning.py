@@ -1,4 +1,10 @@
-from sqlalchemy import create_engine, event, select
+import os
+import threading
+import uuid
+
+import pytest
+from sqlalchemy import create_engine, delete, event, select
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from src.logic.passwords import PasswordHasher
@@ -56,6 +62,143 @@ def test_quiz_progress_round_trip(tmp_path):
     assert repository.import_quiz_progress("quiz-1", "student-1", progress)
     assert repository.get_quiz_progress("quiz-1", "student-1") == progress
     engine.dispose()
+
+
+_LIVE_POSTGRES = pytest.mark.skipif(
+    not os.environ.get("STUDY_BUDDY_TEST_DATABASE_URL"),
+    reason="STUDY_BUDDY_TEST_DATABASE_URL is not configured",
+)
+
+
+def _live_progress_fixture(database_url):
+    """Create isolated rows for PostgreSQL progress-race tests."""
+    engine = create_engine(database_url, pool_pre_ping=True)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    suffix = uuid.uuid4().hex[:16]
+    user_id, deck_id, quiz_id = f"ps-{suffix}", f"pd-{suffix}", f"pq-{suffix}"
+    with factory.begin() as session:
+        session.add(UserModel(
+            id=user_id, username=user_id, email=f"{user_id}@e.test",
+            password_hash="x", display_name="Progress student", role="student",
+            status="active", ban_reason="",
+        ))
+        common = {
+            "owner_id": None, "source_owner_id": "stress", "lifecycle": "published",
+            "visibility": "public",
+        }
+        session.add_all([
+            FlashcardDeckMetadataModel(id=deck_id, name="Progress deck", source_path=f"{deck_id}.json", **common),
+            QuizMetadataModel(id=quiz_id, name="Progress quiz", source_path=f"{quiz_id}.json", **common),
+        ])
+        session.flush()
+        session.add_all([
+            FlashcardModel(deck_id=deck_id, card_id="base-card", front_text="Base", back_text="Answer", position=0),
+            QuizQuestionModel(quiz_id=quiz_id, question_id="base-question", question_text="Base?", question_type="short_answer", position=0, correct_answer="Answer"),
+        ])
+    return engine, factory, PostgresLearningRepository(factory), user_id, deck_id, quiz_id
+
+
+def _live_progress_cleanup(engine, factory, user_id, deck_id, quiz_id):
+    try:
+        with factory.begin() as session:
+            session.execute(delete(FlashcardProgressModel).where(FlashcardProgressModel.user_id == user_id))
+            session.execute(delete(QuizQuestionProgressModel).where(QuizQuestionProgressModel.user_id == user_id))
+            session.execute(delete(FlashcardModel).where(FlashcardModel.deck_id == deck_id))
+            session.execute(delete(QuizQuestionModel).where(QuizQuestionModel.quiz_id == quiz_id))
+            session.execute(delete(FlashcardDeckMetadataModel).where(FlashcardDeckMetadataModel.id == deck_id))
+            session.execute(delete(QuizMetadataModel).where(QuizMetadataModel.id == quiz_id))
+            session.execute(delete(UserModel).where(UserModel.id == user_id))
+    finally:
+        engine.dispose()
+
+
+@_LIVE_POSTGRES
+@pytest.mark.parametrize("kind", ["flashcard", "quiz"])
+@pytest.mark.parametrize("workers", [2, 5, 10])
+@pytest.mark.parametrize("prepopulate", [False, True])
+def test_pg_concurrent_progress_snapshot_replacement_is_serialized(kind, workers, prepopulate):
+    """Every writer succeeds and the final collection is one whole snapshot."""
+    database_url = os.environ["STUDY_BUDDY_TEST_DATABASE_URL"]
+    parsed = make_url(database_url)
+    assert parsed.get_backend_name() == "postgresql"
+    assert parsed.database == "study_buddy_test", "refuse to touch the application database"
+    engine, factory, repository, user_id, deck_id, quiz_id = _live_progress_fixture(database_url)
+    content_id = deck_id if kind == "flashcard" else quiz_id
+    save = repository.import_flashcard_progress if kind == "flashcard" else repository.import_quiz_progress
+    load = repository.get_flashcard_progress if kind == "flashcard" else repository.get_quiz_progress
+    snapshots = [
+        {
+            f"{kind}-{index}-a": {"correct": index, "wrong": 0, "mastered": False},
+            f"{kind}-{index}-b": {"correct": 0, "wrong": index, "mastered": True},
+        }
+        for index in range(workers)
+    ]
+    if prepopulate:
+        assert save(content_id, user_id, {"previous": {"correct": 1, "wrong": 1, "mastered": False}})
+
+    barrier = threading.Barrier(workers)
+    results, errors = [], []
+
+    def writer(snapshot):
+        try:
+            barrier.wait(timeout=15)
+            results.append(save(content_id, user_id, snapshot))
+        except Exception as exc:  # expose a race rather than converting it to a pass
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer, args=(snapshot,)) for snapshot in snapshots]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=45)
+        assert all(not thread.is_alive() for thread in threads)
+        assert not errors, errors
+        assert results == [True] * workers
+        assert load(content_id, user_id) in snapshots
+    finally:
+        _live_progress_cleanup(engine, factory, user_id, deck_id, quiz_id)
+
+
+@_LIVE_POSTGRES
+def test_pg_progress_save_and_clear_are_serialized():
+    """A reset cannot interleave with snapshot replacement into a hybrid state."""
+    database_url = os.environ["STUDY_BUDDY_TEST_DATABASE_URL"]
+    assert make_url(database_url).database == "study_buddy_test"
+    engine, factory, repository, user_id, deck_id, quiz_id = _live_progress_fixture(database_url)
+    snapshot = {
+        "save-a": {"correct": 2, "wrong": 0, "mastered": False},
+        "save-b": {"correct": 0, "wrong": 2, "mastered": True},
+    }
+    assert repository.import_flashcard_progress(deck_id, user_id, {"existing": {"correct": 1, "wrong": 0, "mastered": False}})
+    barrier, results, errors = threading.Barrier(2), [], []
+
+    def save():
+        try:
+            barrier.wait(timeout=15)
+            results.append(repository.import_flashcard_progress(deck_id, user_id, snapshot))
+        except Exception as exc:
+            errors.append(exc)
+
+    def clear():
+        try:
+            barrier.wait(timeout=15)
+            results.append(repository.clear_user_progress("flashcard", user_id) >= 0)
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=save), threading.Thread(target=clear)]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+        assert all(not thread.is_alive() for thread in threads)
+        assert not errors, errors
+        assert results == [True, True]
+        assert repository.get_flashcard_progress(deck_id, user_id) in ({}, snapshot)
+    finally:
+        _live_progress_cleanup(engine, factory, user_id, deck_id, quiz_id)
 
 
 def test_progress_summary_is_set_based_and_enforces_current_availability(tmp_path):
