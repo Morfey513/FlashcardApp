@@ -219,54 +219,27 @@ Install dependencies and apply migrations:
 .\.venv\Scripts\python.exe -m alembic upgrade head
 ```
 
-Import existing JSON accounts without changing their IDs or password hashes:
+## Back up and restore PostgreSQL
+
+Use PostgreSQL's native tools for complete database backup and recovery. Store
+dumps outside the repository and protect them as application data; never commit
+database dumps or credentials to Git.
+
+Create a custom-format backup (the password is requested interactively):
 
 ```powershell
-.\.venv\Scripts\python.exe tools\migrate_users_to_postgres.py
+pg_dump -h <source-host> -p 5432 -U study_buddy -d study_buddy `
+  --format=custom --no-owner --no-privileges --file <outside-repository>\study_buddy.dump
 ```
 
-Then import quiz/deck metadata and ownership. Run the account import first so
-real owner IDs can satisfy their foreign keys; bundled `legacy` content remains
-explicitly unresolved instead of creating a fake account:
+Restore into an existing `study_buddy` database while the API and other clients
+are stopped:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\migrate_content_metadata_to_postgres.py
+pg_restore -h <target-host> -p 5432 -U study_buddy -d study_buddy `
+  --clean --if-exists --no-owner --no-privileges --single-transaction `
+  --exit-on-error <outside-repository>\study_buddy.dump
 ```
-
-After metadata exists, migrate embedded codes and enrollments:
-
-```powershell
-.\.venv\Scripts\python.exe tools\migrate_classes_to_postgres.py
-```
-
-Finally, import authenticated progress and attempt history. Guest files are
-reported and skipped because they intentionally remain offline/local:
-
-```powershell
-.\.venv\Scripts\python.exe tools\migrate_learning_state_to_postgres.py
-```
-
-Import question/card bodies and media metadata after the content catalog exists:
-
-```powershell
-.\.venv\Scripts\python.exe tools\migrate_content_bodies_to_postgres.py
-```
-
-Finally, import edit and moderation history after content metadata exists:
-
-```powershell
-.\.venv\Scripts\python.exe tools\migrate_content_history_to_postgres.py
-```
-
-Then opt the local application into PostgreSQL user storage:
-
-```powershell
-$env:STUDY_BUDDY_STORAGE = "postgresql"
-.\.venv\Scripts\python.exe -m src.main
-```
-
-Unset `STUDY_BUDDY_STORAGE`, or set it to `json`, to return to the current JSON
-backend. This makes rollback safe while other repositories still use JSON.
 
 ## Run the local API
 

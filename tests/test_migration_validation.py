@@ -1,9 +1,6 @@
-"""Opt-in Alembic checks and isolated coverage for the JSON import CLIs."""
+"""Opt-in Alembic and PostgreSQL migration-boundary validation."""
 
-import importlib
-import importlib.util
 import os
-from pathlib import Path
 
 import pytest
 from sqlalchemy.engine import make_url
@@ -110,7 +107,6 @@ def test_alembic_upgrade_downgrade_and_reupgrade(monkeypatch):
             assert "quiz_attempt_questions" in inspect(connection).get_table_names()
     finally:
         engine.dispose()
-
 
 @pytest.mark.parametrize(
     "database_url",
@@ -383,93 +379,3 @@ def test_concurrent_shared_media_imports_advance_all_envelopes_once(tmp_path):
             session.execute(delete(MediaModel).where(MediaModel.owner_id == user_id))
             session.execute(delete(UserModel).where(UserModel.id == user_id))
         engine.dispose()
-
-
-class _IdempotentRepository:
-    records = set()
-    calls = {}
-
-    def __init__(self):
-        pass
-
-    def __getattr__(self, name):
-        def operation(*args, **kwargs):
-            key = (name, repr(args), repr(sorted(kwargs.items())))
-            self.records.add(key)
-            self.calls[name] = self.calls.get(name, 0) + 1
-            return True
-
-        return operation
-
-
-def _run_import_clis(monkeypatch, tmp_path):
-    data = tmp_path / "data"
-    quizzes = data / "quizzes" / "quiz-1"
-    decks = data / "flashcard_decks" / "deck-1"
-    quizzes.mkdir(parents=True)
-    decks.mkdir(parents=True)
-    (data / "users.json").write_text('{"users": [{"id": "u-1", "login": "one"}]}', encoding="utf-8")
-    (quizzes / "quiz.json").write_text('{"id": "quiz-1", "name": "Quiz", "questions": [], "moderation": {"visibility": "class_only", "invite": "ABC123", "enrollments": ["u-1"]}}', encoding="utf-8")
-    (decks / "deck.json").write_text('{"id": "deck-1", "name": "Deck", "cards": [], "moderation": {"visibility": "class_only", "invite": "ABC123", "enrollments": ["u-1"]}}', encoding="utf-8")
-    for root in (quizzes, decks):
-        progress = root / "progress"
-        progress.mkdir()
-        (progress / "u-1.json").write_text("{}", encoding="utf-8")
-    attempts = quizzes / "attempts"
-    attempts.mkdir()
-    (attempts / "u-1.json").write_text('{"user_id": "u-1", "score": 1}', encoding="utf-8")
-    (quizzes / "edit_history.json").write_text("[]", encoding="utf-8")
-    (quizzes / "moderation_history.json").write_text("[]", encoding="utf-8")
-    (decks / "edit_history.json").write_text("[]", encoding="utf-8")
-    (decks / "moderation_history.json").write_text("[]", encoding="utf-8")
-
-    specs = [
-        ("tools.migrate_users_to_postgres", "USERS_FILE", data / "users.json", "PostgresUserRepository"),
-        ("tools.migrate_content_metadata_to_postgres", "QUIZ_DIR", data / "quizzes", "PostgresContentMetadataRepository"),
-        ("tools.migrate_content_metadata_to_postgres", "FLASHCARD_DIR", data / "flashcard_decks", None),
-        ("tools.migrate_classes_to_postgres", "QUIZ_DIR", data / "quizzes", "PostgresClassRepository"),
-        ("tools.migrate_classes_to_postgres", "FLASHCARD_DIR", data / "flashcard_decks", None),
-        ("tools.migrate_learning_state_to_postgres", "QUIZ_DIR", data / "quizzes", "PostgresLearningRepository"),
-        ("tools.migrate_learning_state_to_postgres", "FLASHCARD_DIR", data / "flashcard_decks", None),
-        ("tools.migrate_content_bodies_to_postgres", "QUIZ_DIR", data / "quizzes", "PostgresContentBodyRepository"),
-        ("tools.migrate_content_bodies_to_postgres", "FLASHCARD_DIR", data / "flashcard_decks", None),
-        ("tools.migrate_content_history_to_postgres", "QUIZ_DIR", data / "quizzes", "PostgresContentHistoryRepository"),
-        ("tools.migrate_content_history_to_postgres", "FLASHCARD_DIR", data / "flashcard_decks", None),
-    ]
-    modules = {}
-    for module_name, attr, value, repository_name in specs:
-        if module_name not in modules:
-            path = Path(module_name.replace(".", "/") + ".py")
-            spec = importlib.util.spec_from_file_location(module_name, path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            modules[module_name] = module
-        module = modules[module_name]
-        monkeypatch.setattr(module, attr, value)
-        if repository_name:
-            monkeypatch.setattr(module, repository_name, _IdempotentRepository)
-    return [modules[name] for name in (
-        "tools.migrate_users_to_postgres",
-        "tools.migrate_content_metadata_to_postgres",
-        "tools.migrate_classes_to_postgres",
-        "tools.migrate_learning_state_to_postgres",
-        "tools.migrate_content_bodies_to_postgres",
-        "tools.migrate_content_history_to_postgres",
-    )]
-
-
-def test_all_json_import_clis_are_ordered_and_idempotent(monkeypatch, tmp_path):
-    """Run each documented phase twice against isolated fake repositories."""
-    pytest.importorskip("sqlalchemy")
-    _IdempotentRepository.records.clear()
-    _IdempotentRepository.calls.clear()
-    modules = _run_import_clis(monkeypatch, tmp_path)
-    for module in modules:
-        assert module.main() == 0
-    first_count = len(_IdempotentRepository.records)
-    first_calls = dict(_IdempotentRepository.calls)
-    for module in modules:
-        assert module.main() == 0
-    assert len(_IdempotentRepository.records) == first_count
-    assert _IdempotentRepository.calls == {name: count * 2 for name, count in first_calls.items()}
-    assert "import_content_access" in first_calls
