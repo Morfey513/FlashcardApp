@@ -132,6 +132,20 @@ output remain manual.
 See [docs/testing.md](docs/testing.md) for the complete test inventory and
 testing strategy.
 
+## Phase 7 read-stress evidence
+
+Phase 7 uses a disposable `study_buddy_test` PostgreSQL database and an
+isolated fixture; it never targets normal application data. The September 2026
+read-scaling work confirmed and removed two small pieces of unnecessary work:
+learner preview no longer loads short-answer variants that are immediately
+redacted, and quiz practice no longer builds an image-path projection that its
+media-descriptor pass replaces. The post-change local matrix and 30-minute
+soak completed without unexpected HTTP results, but also improved untouched
+endpoints. That makes the local result unsuitable as proof that either change
+caused the former c=25–32 knee. The next comparison is the same workload on a
+second workstation. See [the Phase 7 live stress report](docs/phase7-live-stress-report.md)
+for provenance, artifacts, and limits of interpretation.
+
 ## Phase 5 and future plans
 
 Phase 5 provides the local offline-library foundation. It does not provide full
@@ -151,4 +165,5 @@ implemented yet.
 - [PostgreSQL migration and local setup](docs/database.md)
 - [Proposed PostgreSQL ER diagram](docs/study_buddy_erd.md)
 - [Testing strategy and test inventory](docs/testing.md)
+- [Phase 7 live stress-test report](docs/phase7-live-stress-report.md)
 - [Screenshot catalog](docs/screenshots/README.md)

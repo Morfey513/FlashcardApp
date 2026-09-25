@@ -277,3 +277,188 @@ Prefix-scoped cleanup removed the generated rows for this run. Verification afte
 
 - transient PostgreSQL failure injection
 - lock-wait/deadlock instrumentation beyond what the existing harness exposed
+
+## September 9 30-minute read-soak baseline
+
+This is a new, isolated baseline, not an optimization result. The existing
+multi-account profile ran six sequential five-minute soak slices at c=12
+(one request loop per worker) against `postgresql/study_buddy_test`: 30 minutes
+of measured endpoint soak in total. Its artifacts are
+`.temp/phase7/phase7-20260909-30m-multi-account-soak.json` and the matching
+`.csv` file.
+
+- Application and harness Git revision: `7525ca1a253e80ecfeb92925e91fa1c02d6b2be7`
+  on `main`.
+- Harness content SHA-256: `170b65ac46ab83726d44718bae310b15705afba812319f943f7f75a9b7ff7c58`.
+- Fixture: `phase7-1788960339-cb7d4caa`, `class-backed-assessment-v2`.
+- Pool: test-harness `pool_pre_ping=true`, `pool_size=12`, `max_overflow=0`.
+  Production configuration was not changed.
+- Total requests: 67,370; unexpected results: 0; stderr: empty.
+
+| Endpoint | Requests | p50 | p95 | p99 | Max | Result |
+|---|---:|---:|---:|---:|---:|---|
+| available metadata | 20,790 | 166 ms | 253 ms | 402 ms | 692 ms | 200 only |
+| preview | 7,773 | 474 ms | 598 ms | 655 ms | 793 ms | 200 only |
+| practice download | 6,703 | 549 ms | 693 ms | 749 ms | 907 ms | 200 only |
+| media manifest | 9,323 | 387 ms | 506 ms | 561 ms | 785 ms | 200 only |
+| media read | 8,658 | 427 ms | 516 ms | 557 ms | 685 ms | 200 only |
+| restricted read | 14,122 | 256 ms | 329 ms | 367 ms | 513 ms | expected 404 only |
+
+No new deadlock, waiting-lock, connection/pool, timeout, or integrity failure
+was observed. PostgreSQL did not have `pg_stat_statements` installed, so this
+run cannot attribute latency to individual SQL statements. The worker process
+held approximately 111–121 MiB working set while consuming sustained CPU; no
+system-wide CPU/RSS sample was available. The earlier c=25/50/100 content-read
+tail figures were not reproduced or contradicted: this baseline is sustained
+c=12 and is not a concurrency-scaling comparison.
+
+## September 9 read-scaling matrix
+
+This follow-up used the same committed application/harness revision
+`7525ca1a253e80ecfeb92925e91fa1c02d6b2be7`, source SHA-256
+`170b65ac46ab83726d44718bae310b15705afba812319f943f7f75a9b7ff7c58`, branch
+`main`, isolated `postgresql/study_buddy_test`, and
+`class-backed-assessment-v2` fixtures. Each level used six sequential
+10-second read-only soak slices (`available_metadata`, `preview`,
+`practice_download`, `media_manifest`, `media_read`, and `restricted_denied`),
+with one request loop per worker. Artifacts are
+`.temp/phase7/phase7-20260909-read-scaling-c{12,16,20,25,32,40,50,75,100}.json`
+and matching CSV/log files. Each artifact records pool settings
+`pool_pre_ping=true`, `pool_size=max(5,c)`, `max_overflow=0`.
+
+The aggregate latency percentile across unlike endpoint distributions is not
+statistically meaningful, so endpoint values remain in the JSON artifacts.
+The table uses `available_metadata` as a consistent reference endpoint and
+names the worst p99 endpoint at each level. All successful reads were HTTP
+200; all `restricted_denied` reads were expected HTTP 404; unexpected results
+were zero at every level.
+
+| c | Requests | Measured duration | Total req/s | Metadata p50/p95/p99/max | Worst endpoint p99 | Unexpected |
+|---:|---:|---:|---:|---|---|---:|
+| 12 | 4,270 | 60 s | 71.17 | 232/349/474/481 ms | preview 530 ms | 0 |
+| 16 | 5,079 | 60 s | 84.65 | 178/307/338/386 ms | practice 453 ms | 0 |
+| 20 | 5,084 | 60 s | 84.73 | 202/275/433/483 ms | practice 670 ms | 0 |
+| 25 | 4,154 | 60 s | 69.23 | 341/536/598/681 ms | media read 932 ms | 0 |
+| 32 | 2,273 | 60 s | 37.88 | 986/1089/1320/1389 ms | practice 1402 ms | 0 |
+| 40 | 2,319 | 60 s | 38.65 | 993/1290/1586/1714 ms | practice 1976 ms | 0 |
+| 50 | 2,600 | 60 s | 43.33 | 1320/1422/1455/1510 ms | practice 2072 ms | 0 |
+| 75 | 2,451 | 60 s | 40.85 | 2171/2375/2431/2503 ms | practice 2872 ms | 0 |
+| 100 | 2,666 | 60 s | 44.43 | 2426/2870/2966/3020 ms | practice 4561 ms | 0 |
+
+### Scaling interpretation and telemetry
+
+- **c=12–20:** throughput grows to about 85 req/s while endpoint p99 remains
+  below 0.7 seconds.
+- **c=25:** degradation begins; total throughput falls and media-read p99
+  reaches 932 ms.
+- **c=32:** broad degradation is evident: throughput falls to 38 req/s and
+  every successful read profile has roughly 1.0–1.4 second p99 latency.
+- **c=40–100:** latency rises sharply with little throughput gain. c=100 is
+  stable enough to complete, but not healthy as a latency target.
+
+This reproduces the historical *shape* of the scaling knee, but not its exact
+numbers: historical results reported approximately c=25 p99 311 ms, c=50 p99
+2829 ms, and c=100 p99 7698 ms. The new worst endpoint p99 values are 932 ms,
+2072 ms, and 4561 ms respectively. Workload mix, fixture/run conditions, and
+the historical aggregate definition prevent treating the differences as a
+regression or improvement claim.
+
+Post-run telemetry found no waiting locks, new deadlocks, connection errors,
+timeouts, or integrity errors. `pg_stat_statements` is not installed and was
+not enabled because that typically requires server preload/restart. Global
+table counters show substantial accumulated sequential scans on `users`,
+`user_sessions`, `quizzes`, and `quiz_questions`, but they were not reset or
+captured per level; they are **suspicious**, not endpoint-attributable proof.
+At c=100 the harness pool size equals PostgreSQL `max_connections=100`; no
+failure occurred, but connection-acquisition timing was not captured, so pool
+saturation is also **suspicious**, not confirmed.
+
+**Bottleneck classification:** the c=25–32 throughput/latency knee is
+**confirmed** as observed behavior. Its root cause is **unknown**. SQL scan
+counters, c=100 pool geometry, and sustained Python CPU are **suspicious**;
+lock/deadlock contention is not supported by this run. No production
+optimization is justified without per-statement SQL and connection-acquisition
+telemetry.
+
+### Post-matrix diagnostic code-path review
+
+Read-path inspection materially narrows, but does not prove, the cause of the
+c=25–32 knee. Each request authenticates through separate synchronous
+repository calls for opaque-session resolution and user lookup. Content access
+then performs further synchronous repository calls. The available-metadata path
+materializes the catalog and separately resolves active class content IDs. The
+quiz preview builds a full question projection using several sequential queries
+(questions, options, pairs, variants, and media). Practice download performs
+that full quiz projection and then a separate media-descriptor query. These
+paths explain why practice download and preview are the earliest/slowest
+profiles under load.
+
+This is **strongly suspicious**, not a confirmed SQL or pool bottleneck:
+request-level timing does not separate authentication, connection checkout, SQL
+execution, Python projection/serialization, and response time. Likewise, the
+routes are synchronous FastAPI handlers, but no server thread/event-loop queue
+telemetry was captured. The smallest useful next experiment is therefore a
+short c=20/25/28/32/36/40/50 matrix with per-request timing spans for pool
+checkout, SQL execution, and response serialization plus process CPU/RSS and
+PostgreSQL active-session sampling. It should use the same isolated fixture and
+must not alter production settings or behavior.
+
+## September 10 narrow projection cleanup and comparison
+
+Two repository changes remove work that the code review established was unused:
+
+- Learner quiz preview (`include_answers=False`) no longer reads
+  `short_answer_variants`. The public preview remains answer-redacted; an
+  answer-bearing projection still reads variants and returns the same answers.
+- Quiz practice no longer performs the intermediate `image_path` lookup that
+  it immediately removes before attaching its dedicated media descriptors.
+  Practice media references and descriptor semantics are unchanged.
+
+Focused repository and API validation passed (`4 passed`). The repository-level
+fixture changes learner preview from six body queries to five. The full local
+pytest command could not collect the GUI-regression test because its local
+environment lacked `psutil`; this is an environment dependency issue, not a
+failure from these changes.
+
+The post-change comparison used the same `multi-account` profile, six
+sequential 10-second soak slices, two-second ramp, dedicated
+`postgresql/study_buddy_test`, and `class-backed-assessment-v2` fixture as the
+September 9 matrix. Artifacts are
+`.temp/phase7/phase7-20260910-postchange-read-scaling-c{20,25,32,40,50}.json`
+and matching CSV files. The application base revision is
+`7525ca1a253e80ecfeb92925e91fa1c02d6b2be7`; the harness source was
+uncommitted and records SHA-256
+`208c695efaac74c560f83247cef17e26693c0528d0a7e99af983c9523112c23e`.
+
+| c | Previous total req/s | Post-change total req/s | Previous Practice p99 | Post-change Practice p99 | Previous Preview p99 | Post-change Preview p99 | Unexpected |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 20 | 84.73 | 93.45 | 670 ms | 420 ms | 569 ms | 253 ms | 0 |
+| 25 | 69.23 | 80.47 | 440 ms | 537 ms | 686 ms | 566 ms | 0 |
+| 32 | 37.88 | 82.08 | 1,402 ms | 640 ms | 1,177 ms | 641 ms | 0 |
+| 40 | 38.65 | 85.00 | 1,976 ms | 802 ms | 1,657 ms | 835 ms | 0 |
+| 50 | 43.33 | 105.00 | 2,072 ms | 854 ms | 1,867 ms | 680 ms | 0 |
+
+The c=32–50 results are substantially better, while c=25 is mixed. They do
+not establish that the two cleanup changes removed the scaling knee: all four
+untouched read profiles also improved sharply during the same post-change
+matrix. This is a materially different local runtime condition, not a
+controlled causal result.
+
+### Post-change 30-minute c=12 stability soak
+
+The same six sequential five-minute c=12 slices completed with zero unexpected
+results. Artifacts are
+`.temp/phase7/phase7-20260910-postchange-30m-multi-account-soak.json` and the
+matching CSV. The artifact records 199,376 requests; Preview p99 was 191 ms
+and Practice Download p99 was 228 ms. Every endpoint improved relative to the
+September 9 artifact, including untouched metadata, media, and restricted-read
+paths. It is therefore a successful stability/regression run, but not evidence
+that the two projection cleanups caused the broader throughput gain.
+
+### Current decision
+
+The cleanup changes are retained because they remove confirmed unnecessary
+work. No further local optimization is justified by this comparison. The next
+test is the identical c=20/25/32/40/50 matrix and c=12 30-minute soak on a
+second workstation, recording application revision, harness SHA-256, machine
+details, OS CPU/RSS, and endpoint artifacts before comparing results.

@@ -134,6 +134,13 @@ class PostgresContentBodyRepository:
             return False
 
     def get_quiz(self, quiz_id: str, *, include_answers: bool = True) -> dict | None:
+        return self._get_quiz(
+            quiz_id, include_answers=include_answers, include_image_paths=True,
+        )
+
+    def _get_quiz(
+        self, quiz_id: str, *, include_answers: bool, include_image_paths: bool,
+    ) -> dict | None:
         try:
             with self.session_factory() as session:
                 metadata = session.get(QuizMetadataModel, str(quiz_id))
@@ -159,28 +166,30 @@ class PostgresContentBodyRepository:
                         MatchingPairModel.question_id, MatchingPairModel.position
                     )).all():
                         pairs_by_question.setdefault(pair.question_id, []).append(pair)
-                    for variant in session.scalars(select(ShortAnswerVariantModel).where(
-                        ShortAnswerVariantModel.quiz_id == str(quiz_id)
-                    ).order_by(
-                        ShortAnswerVariantModel.question_id,
-                        ShortAnswerVariantModel.position,
-                    )).all():
-                        variants_by_question.setdefault(
-                            variant.question_id, []
-                        ).append(variant)
-                    media_rows = session.execute(select(
-                        QuestionMediaModel.question_id,
-                        MediaModel.id,
-                    ).join(
-                        MediaModel, MediaModel.id == QuestionMediaModel.media_id,
-                    ).where(
-                        QuestionMediaModel.quiz_id == str(quiz_id),
-                        QuestionMediaModel.role == "image",
-                    ).order_by(
-                        QuestionMediaModel.question_id, QuestionMediaModel.media_id,
-                    )).all()
-                    for question_id, media_id in media_rows:
-                        media_by_question.setdefault(question_id, media_id)
+                    if include_answers:
+                        for variant in session.scalars(select(ShortAnswerVariantModel).where(
+                            ShortAnswerVariantModel.quiz_id == str(quiz_id)
+                        ).order_by(
+                            ShortAnswerVariantModel.question_id,
+                            ShortAnswerVariantModel.position,
+                        )).all():
+                            variants_by_question.setdefault(
+                                variant.question_id, []
+                            ).append(variant)
+                    if include_image_paths:
+                        media_rows = session.execute(select(
+                            QuestionMediaModel.question_id,
+                            MediaModel.id,
+                        ).join(
+                            MediaModel, MediaModel.id == QuestionMediaModel.media_id,
+                        ).where(
+                            QuestionMediaModel.quiz_id == str(quiz_id),
+                            QuestionMediaModel.role == "image",
+                        ).order_by(
+                            QuestionMediaModel.question_id, QuestionMediaModel.media_id,
+                        )).all()
+                        for question_id, media_id in media_rows:
+                            media_by_question.setdefault(question_id, media_id)
                 return {
                     "id": metadata.id, "name": metadata.name,
                     "content_version": metadata.content_version,
@@ -240,7 +249,9 @@ class PostgresContentBodyRepository:
         """Return a complete offline-practice projection without storage keys."""
         normalized_kind = self._normalize_kind(kind)
         if normalized_kind == "quiz":
-            body = self.get_quiz(content_id, include_answers=True)
+            body = self._get_quiz(
+                content_id, include_answers=True, include_image_paths=False,
+            )
         else:
             body = self.get_flashcard_deck(content_id)
         if body is None:

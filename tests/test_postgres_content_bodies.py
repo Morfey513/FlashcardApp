@@ -217,6 +217,39 @@ def test_quiz_body_query_count_is_bounded_for_one_and_one_hundred_questions(tmp_
         engine.dispose()
 
 
+def test_learner_quiz_preview_skips_short_answer_variants_and_preserves_redaction(tmp_path):
+    repository, _sessions, engine = _repository(tmp_path)
+    assert repository.import_quiz(_quiz())
+    statements = []
+
+    def record_statement(_connection, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record_statement)
+    try:
+        learner_preview = repository.get_quiz("quiz-1", include_answers=False)
+        learner_statements = list(statements)
+        assert all("short_answer_variants" not in statement for statement in learner_statements)
+        assert len(learner_statements) == 5
+        assert all("answer" not in question for question in learner_preview["questions"])
+        assert learner_preview["questions"][0]["choices"] == ["Mars", "Saturn"]
+        assert learner_preview["questions"][4]["pairs"] == [
+            {"prompt": "Spain", "answer": None},
+        ]
+
+        statements.clear()
+        answer_bearing = repository.get_quiz("quiz-1", include_answers=True)
+        assert any("short_answer_variants" in statement for statement in statements)
+        assert len(statements) == 6
+        assert answer_bearing["questions"][3]["answer"] == "Tokyo"
+        assert answer_bearing["questions"][4]["pairs"] == [
+            {"prompt": "Spain", "answer": "Madrid"},
+        ]
+    finally:
+        event.remove(engine, "before_cursor_execute", record_statement)
+        engine.dispose()
+
+
 def test_empty_quiz_body_uses_only_fixed_parent_queries(tmp_path):
     repository, _sessions, engine = _repository(tmp_path)
     assert repository.import_quiz({"id": "quiz-1", "name": "Quiz", "questions": []})
@@ -404,7 +437,13 @@ def test_practice_projection_uses_stable_media_references_and_descriptors(tmp_pa
     image.write_bytes(PNG + b"practice-image")
     assert repository.import_quiz(_quiz(str(image)))
 
-    package = repository.get_practice_package("quiz", "quiz-1")
+    statements = []
+    listener = lambda _connection, _cursor, statement, _parameters, _context, _many: statements.append(statement)
+    event.listen(engine, "before_cursor_execute", listener)
+    try:
+        package = repository.get_practice_package("quiz", "quiz-1")
+    finally:
+        event.remove(engine, "before_cursor_execute", listener)
     descriptors = repository.get_media_descriptors("quiz", "quiz-1")
 
     assert package["package_type"] == "offline_practice"
@@ -418,6 +457,7 @@ def test_practice_projection_uses_stable_media_references_and_descriptors(tmp_pa
     assert descriptors[0]["size_bytes"] == len(PNG + b"practice-image")
     assert len(descriptors[0]["checksum_sha256"]) == 64
     assert "storage_key" not in descriptors[0]
+    assert not any("question_media.role =" in statement for statement in statements)
     attached = repository.get_media_attachment(
         "quiz", "quiz-1", descriptors[0]["media_id"]
     )
