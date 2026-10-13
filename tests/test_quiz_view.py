@@ -70,11 +70,19 @@ def test_true_false_ui_returns_boolean_value():
         def get_current_card_type(self):
             return "true_false"
 
+        def abandon_test_attempt(self):
+            """Match the controller method invoked by QuizViewer.closeEvent()."""
+            return None
+
     viewer = QuizViewer(ControllerStub())
     viewer.render_answer_widget({"type": "true_false"})
     viewer.answer_group[0].setChecked(True)
 
     assert viewer.get_user_input() is True
+    # Exercise the production close path while this test owns the controller
+    # double.  Leaving it to QApplication teardown can otherwise invoke a
+    # missing stub method through Qt's native close-event callback.
+    viewer.close()
     assert app is not None
 
 

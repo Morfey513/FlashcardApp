@@ -69,6 +69,22 @@ def test_flashcard_editor_populates_existing_content_once_during_initialization(
     assert app is not None
 
 
+def test_quiz_editor_repeated_create_close_cycles_keep_shared_qapplication_alive():
+    app = QApplication.instance()
+    assert app is not None
+
+    for _ in range(100):
+        editor = QuizEditor(QuizEditorControllerStub())
+        editor.show()
+        app.processEvents()
+        editor.close()
+        editor.deleteLater()
+        app.processEvents()
+        app.sendPostedEvents(None, 0)
+
+    assert QApplication.instance() is app
+
+
 @pytest.mark.parametrize("editor_type", ["quiz", "flashcard"])
 def test_editor_status_column_stays_aligned_when_invite_action_is_present(editor_type):
     app = QApplication.instance() or QApplication([])

@@ -23,20 +23,29 @@ class RecordedAudioPlayer(QObject):
         self.player.errorOccurred.connect(self._on_error)
         self._items = []
         self._pause_ms = 0
+        self._playback_id = 0
 
     def play_sequence(self, items, pause_ms=500):
         """Play ``(path, text)`` fields, using TTS if a recording is missing."""
         self.stop()
+        self._playback_id += 1
         self._items = list(items)
         self._pause_ms = max(0, pause_ms)
-        self._play_next()
+        self._play_next(self._playback_id)
 
     def stop(self):
+        # Completion callbacks can already be queued by QTextToSpeech or the
+        # media player.  Invalidate them before touching either backend.
+        self._playback_id += 1
         self._items = []
         self.player.stop()
         self.text_to_speech.stop()
 
-    def _play_next(self):
+    def _play_next(self, playback_id=None):
+        if playback_id is None:
+            playback_id = self._playback_id
+        if playback_id != self._playback_id:
+            return
         while self._items:
             path_value, text = self._items.pop(0)
             path = Path(path_value) if path_value else None
@@ -47,18 +56,28 @@ class RecordedAudioPlayer(QObject):
                 return
             if str(text or "").strip() and self.text_to_speech.is_available:
                 logger.debug("No recorded audio for flashcard field; using TTS")
-                self.text_to_speech.speak(text, on_finished=self._continue_after_pause)
+                self.text_to_speech.speak(
+                    text,
+                    on_finished=lambda: self._continue_after_pause(playback_id),
+                )
                 return
         self.player.stop()
 
-    def _continue_after_pause(self):
-        QTimer.singleShot(self._pause_ms, self._play_next)
+    def _continue_after_pause(self, playback_id=None):
+        if playback_id is None:
+            playback_id = self._playback_id
+        if playback_id != self._playback_id:
+            return
+        QTimer.singleShot(
+            self._pause_ms,
+            lambda: self._play_next(playback_id),
+        )
 
     def _on_media_status_changed(self, status):
         if status == QMediaPlayer.MediaStatus.EndOfMedia:
-            self._continue_after_pause()
+            self._continue_after_pause(self._playback_id)
 
     def _on_error(self, error, error_string):
         if error != QMediaPlayer.Error.NoError:
             logger.warning("Recorded audio playback failed: %s", error_string)
-            self._continue_after_pause()
+            self._continue_after_pause(self._playback_id)

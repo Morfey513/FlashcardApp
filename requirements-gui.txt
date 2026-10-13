@@ -1,0 +1,5 @@
+# Opt-in dependencies for the visible Windows GUI regression runner.
+# They are intentionally separate from normal application and pytest dependencies.
+pywinauto==0.6.8
+psutil>=6,<8
+Pillow>=10,<12

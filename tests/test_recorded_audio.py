@@ -120,3 +120,17 @@ def test_recorded_audio_skips_empty_fields_handles_errors_and_stops(monkeypatch)
     player.stop()
     assert player._items == []
     assert tts.stop_calls >= 2
+
+
+def test_stop_invalidates_already_queued_tts_completion(monkeypatch):
+    tts = FakeTTS()
+    player = make_player(monkeypatch, tts)
+
+    player.play_sequence([(None, "front"), (None, "back")])
+    stale_completion = tts.callback
+
+    player.stop()
+    stale_completion()
+
+    assert tts.spoken == ["front"]
+    assert ImmediateTimer.calls == []

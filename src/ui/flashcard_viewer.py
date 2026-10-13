@@ -293,7 +293,7 @@ class FlashcardViewer(QWidget):
             sec = "flashcard_viewer"
 
             # 1. Reset visual state
-            self.recorded_audio.stop()
+            self._stop_active_playback()
             self.card.reset()
             self.hint_btn.setChecked(False)
             self.current_card_text = {
@@ -554,7 +554,7 @@ class FlashcardViewer(QWidget):
         # Content Card
         self.card = FlippableCard()
         self.card.mousePressEvent = lambda e: self.card.flip()
-        self.card.flipped.connect(lambda _is_flipped: self.recorded_audio.stop())
+        self.card.flipped.connect(lambda _is_flipped: self._stop_active_playback())
 
         self.text_to_speech = TextToSpeech(self)
         self.recorded_audio = RecordedAudioPlayer(self.text_to_speech, self)
@@ -763,9 +763,19 @@ class FlashcardViewer(QWidget):
     def return_to_deck_selection(self):
         """Switches the view back to the selection menu and cleans up the session."""
         logger.info("Returning to deck selection menu.")
+        self._stop_active_playback()
         self.stack.setCurrentWidget(self.deck_selection_panel)
         self.refresh_deck_list()
         self.controller.end_session()
+
+    def _stop_active_playback(self):
+        """Synchronously invalidate playback before a study-view transition."""
+        self.recorded_audio.stop()
+
+    def closeEvent(self, event):
+        """Ensure native audio backends stop while this viewer still owns them."""
+        self._stop_active_playback()
+        super().closeEvent(event)
 
     def show_manage_progress(self):
         """Open the centralized progress manager for this user."""
