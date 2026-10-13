@@ -47,7 +47,7 @@ Additional screens are available in [`docs/screenshots/`](docs/screenshots/).
 - PyQt6 and Qt Multimedia/Text-to-Speech
 - QSS light and dark themes
 - JSON persistence
-- FastAPI and Uvicorn (local identity API)
+- FastAPI and Uvicorn (authenticated application API)
 - SQLAlchemy 2, Alembic, psycopg, and PostgreSQL (incremental migration)
 - pytest
 - Git and GitHub
@@ -76,7 +76,7 @@ StudyBuddy/
 |-- data/                 # Content, users, settings, progress, and media
 |-- docs/                 # Architecture, testing, and screenshots
 |-- src/
-|   |-- api/              # Local FastAPI identity endpoints
+|   |-- api/              # FastAPI application endpoints
 |   |-- controllers/      # Application coordination
 |   |-- logic/            # Learning and permission rules
 |   |-- storage/          # Repository contracts and JSON/PostgreSQL/HTTP adapters
@@ -116,21 +116,17 @@ Install the development dependencies and run:
 .\.venv\Scripts\python.exe run_tests.py
 ```
 
-**158 pytest cases are collected (157 pass locally and one optional live-
-PostgreSQL smoke test is skipped), providing 52.7% overall branch coverage. Core controllers
-achieve 87.5% branch coverage and utilities 98.5%; the lower overall figure is
-primarily caused by intentionally lightly tested PyQt presentation code.** The
-controller, Quiz/Test Mode controller, and utility regression floors are 80%,
-80%, and 90%, respectively. Tests cover core learning logic, grading, repositories,
-progress, sessions, permissions, invitations, editor controllers, mocked
-audio/TTS behavior, and selected high-value UI behavior such as authentication
-validation, enrollment feedback, role-gated actions, and test-attempt gating.
-The normal command also creates
-an interactive report at `.temp/coverage/htmlcov/index.html`; visual PyQt and real-device
-output remain manual.
+Test counts and coverage are revision- and environment-specific, especially
+for PostgreSQL-gated tests. The normal command prints the authoritative
+pass/fail/skip and coverage result for the current checkout. It enforces
+controller, Quiz/Test Mode controller, and utility regression floors of 80%,
+80%, and 90%. Coverage reports are written to
+`.temp/coverage/htmlcov/index.html`; visual PyQt and real-device output remain
+manual.
 
 See [docs/testing.md](docs/testing.md) for the complete test inventory and
-testing strategy.
+testing strategy, and [the project status report](docs/project_status.md) for
+the last recorded results and their limitations.
 
 ## Phase 7 read-stress evidence
 
@@ -144,9 +140,10 @@ soak completed without unexpected HTTP results, but also improved untouched
 endpoints. That makes the local result unsuitable as proof that either change
 caused the former c=25–32 knee. The next comparison is the same workload on a
 second workstation. See [the Phase 7 live stress report](docs/phase7-live-stress-report.md)
-for provenance, artifacts, and limits of interpretation.
+and [the soak-test history](docs/performance/soak_test_history.md) for
+provenance, completed work, artifacts, and limits of interpretation.
 
-## Phase 5 and future plans
+## Offline Library and updates
 
 Phase 5 provides the local offline-library foundation. It does not provide full
 synchronization or automatic content updates. The implementation keeps bundled
@@ -154,10 +151,11 @@ demo and existing JSON content separate from explicitly downloaded public,
 class, or private content, with account-aware access and a separate
 **Clear Downloaded Data** action.
 
-Phase 6 will define content version/update detection, explicit cache refresh,
-media download and cache management, offline availability/error handling, and
-future synchronization rules where required. These capabilities are not
-implemented yet.
+Phase 6 added server-authoritative content versions, explicit refresh,
+offline-practice packages, downloaded media, and media-aware offline
+availability/error handling. It still does not provide full synchronization or
+automatic content updates. See [the storage-mode documentation](docs/storage-modes.md)
+for supported behaviour and deferred cache hardening work.
 
 ## Documentation
 
@@ -165,5 +163,8 @@ implemented yet.
 - [PostgreSQL migration and local setup](docs/database.md)
 - [Proposed PostgreSQL ER diagram](docs/study_buddy_erd.md)
 - [Testing strategy and test inventory](docs/testing.md)
+- [Current project status](docs/project_status.md)
+- [Prioritized roadmap](docs/roadmap.md)
 - [Phase 7 live stress-test report](docs/phase7-live-stress-report.md)
+- [Phase 7 soak-test history](docs/performance/soak_test_history.md)
 - [Screenshot catalog](docs/screenshots/README.md)
