@@ -29,6 +29,7 @@ logs/
 cache/
 *.log
 data/settings.json
+data/managed_media/
 data/flashcards/*/progress/*.json
 data/quizzes/*/progress/*.json
 /legacy/data/flashcards/*/progress/*.json

@@ -13,7 +13,7 @@ The user/account slice now includes:
 - an opt-in SQLAlchemy PostgreSQL implementation;
 - Alembic tables for users, settings, future server sessions, and account
   moderation history;
-- an idempotent JSON-user import command;
+- preserved legacy user identifiers during the repository migration;
 - a local FastAPI identity service with hashed, revocable bearer sessions;
 - repository parity, API behavior tests, and optional live-PostgreSQL tests.
 
@@ -26,7 +26,7 @@ The content-metadata slice now adds:
   `legacy` content that has no account row;
 - the transitional JSON source path, while questions/cards/media remain in
   their current per-content folders;
-- an idempotent content metadata import command.
+- PostgreSQL content metadata catalogs for the bundled and server content.
 - authenticated FastAPI metadata reads/writes and a desktop HTTP adapter;
 - server-side ownership checks that preserve the original owner during an
   administrator edit and reject cross-owner teacher updates.
@@ -46,11 +46,11 @@ The learning-state slice now adds:
 - durable quiz attempts, including submitted, interrupted, refunded, timed-out,
   and teacher-resolved states;
 - per-question JSON answers with ordering and response-time metadata;
-- idempotent import of existing authenticated learning files;
+- durable authenticated learning-state storage;
 - authenticated progress and attempt API endpoints plus a desktop HTTP adapter.
 
 Guest progress and guest attempts deliberately remain local. Guests have no
-database identity, so the importer reports and skips their files instead of
+database identity, so this server boundary skips their local files instead of
 creating a synthetic account.
 
 The content-body/media slice now adds:
@@ -75,7 +75,7 @@ The content-history slice now adds:
   `legacy` events remain attributable without inventing database users;
 - authenticated owner/admin history reads and server-side audit records for
   future body and lifecycle updates;
-- an idempotent import of the existing per-content history files.
+- append-only per-content history storage.
 
 Invitation codes remain retrievable because the teacher UI must copy and share
 the active code. PostgreSQL stores both the formatted display value and a
@@ -187,36 +187,52 @@ Start-Service postgresql-x64-17
 pg_isready -h 127.0.0.1 -p 5432
 ```
 
-Create separate application and test databases using your PostgreSQL
-administrator account. Enter passwords interactively; do not put them in Git:
+For a clean PostgreSQL instance, supply
+`STUDY_BUDDY_BOOTSTRAP_ADMIN_URL` and `STUDY_BUDDY_TEST_DATABASE_URL` in the
+environment through your shell, CI secret store, or process launcher before
+running bootstrap. The bootstrap command reads process environment only; it
+does not load `.env` or write a credentials file. Do not enter
+password-bearing commands into shell history.
+The administrator URL must use PostgreSQL's `postgres` maintenance database
+and have permission to create the application role and database. The
+application URL must name exactly `study_buddy_test`; its username becomes
+that database's owner. Both URLs must name the same PostgreSQL host and port.
 
-```powershell
-psql -U postgres -h 127.0.0.1
-```
-
-```sql
-CREATE ROLE study_buddy LOGIN PASSWORD 'choose-a-local-password';
-CREATE DATABASE study_buddy OWNER study_buddy;
-
-CREATE ROLE study_buddy_test LOGIN PASSWORD 'choose-another-local-password';
-CREATE DATABASE study_buddy_test OWNER study_buddy_test;
-```
-
-Copy `.env.example` to the ignored `.env` file and replace its example
-passwords. Study Buddy loads this local configuration automatically, while
-explicit shell/CI variables still take precedence. The real `.env` file is
-ignored by Git and must never be committed.
-
-```powershell
-Copy-Item .env.example .env
-notepad .env
-```
-
-Install dependencies and apply migrations:
+Install dependencies, then bootstrap the dedicated disposable server database:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe tools\bootstrap_server.py
+```
+
+`bootstrap_server.py` first verifies the administrator connection, creates the
+login role and `study_buddy_test` database when absent, and refuses an existing
+database owned by another role. It never changes a role password on a rerun.
+It then verifies the target, runs `alembic upgrade head`, imports the bundled
+demo quiz and flashcard deck, starts the local API on `127.0.0.1:8000` if
+needed, and checks both `/health` and `/ready`. It is safe to run again: a
+verified canonical demo is a no-op, preserving its revision and managed media.
+The tool refuses conflicting metadata or body content and refuses an API on
+port 8000 unless that API was launched by a prior bootstrap run.
+Use `--port 8001` to launch and verify a separate local bootstrap API when
+port 8000 is occupied.
+
+The manual equivalent remains useful for diagnosis. Set
+`STUDY_BUDDY_DATABASE_URL` temporarily to the same disposable URL, run
+`python -m alembic upgrade head`, and start
+`python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000`. The
+bootstrap tool uses the current PostgreSQL repositories directly to load the
+bundled data.
+
+### Manual database provisioning fallback
+
+Use this only to diagnose bootstrap permissions. PostgreSQL's native tools
+prompt for passwords without putting them in command history; bootstrap
+normally creates the disposable role/database itself.
+
+```powershell
+createuser -h 127.0.0.1 -U postgres --login --pwprompt study_buddy_test
+createdb -h 127.0.0.1 -U postgres --owner=study_buddy_test study_buddy_test
 ```
 
 ## Back up and restore PostgreSQL
@@ -241,10 +257,10 @@ pg_restore -h <target-host> -p 5432 -U study_buddy -d study_buddy `
   --exit-on-error <outside-repository>\study_buddy.dump
 ```
 
-## Run the local API
+## Run the local API manually
 
-With the local `.env` configured, start a development server bound only to
-this computer:
+The bootstrap command starts and verifies the API automatically. For manual
+diagnosis, start a development server bound only to this computer:
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000 --reload
@@ -268,10 +284,12 @@ secret management, restricted CORS/hosts, and production server configuration.
 
 ### Connect the desktop through the API
 
-Leave the API running in the first PowerShell window. The desktop reads the
-same `.env`, so a second PowerShell window only needs:
+After bootstrap reports success, start the desktop in a second PowerShell
+window with the local API selected:
 
 ```powershell
+$env:STUDY_BUDDY_STORAGE = 'api'
+$env:STUDY_BUDDY_API_URL = 'http://127.0.0.1:8000'
 .\.venv\Scripts\python.exe -m src.main
 ```
 
