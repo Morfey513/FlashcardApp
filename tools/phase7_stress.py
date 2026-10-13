@@ -10,10 +10,9 @@ Examples::
     .venv\\Scripts\\python tools\\phase7_stress.py --dry-run --profile all
     .venv\\Scripts\\python tools\\phase7_stress.py --profile multi-account --shape ramp --concurrency 16
 
-The live runner is intentionally in-process (FastAPI TestClient per worker):
-it exercises routes, authorization and PostgreSQL concurrency, but excludes
-network/TLS and Uvicorn worker behaviour.  Run it only against a dedicated,
-migrated test database.
+Local live mode starts an isolated loopback FastAPI server over the dedicated
+test database.  External mode (``--base-url`` plus ``--fixture-manifest``) is
+an HTTP-only client and never starts FastAPI or accesses PostgreSQL.
 """
 from __future__ import annotations
 
@@ -39,12 +38,20 @@ from typing import Callable, Iterable
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from sqlalchemy.engine import make_url
-
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from tools.phase7_fixture import (
+    build_fixture_manifest,
+    cleanup_fixture_rows,
+    load_manifest,
+    normalize_base_url,
+    require_migrated_schema,
+    seed_fixture,
+    validate_database_url as validate_fixture_database_url,
+    validate_manifest,
+)
 
 TEST_DATABASE_NAME = "study_buddy_test"
 SHAPES = {"burst", "ramp", "soak"}
@@ -149,6 +156,7 @@ class RunConfig:
     database_url: str = ""
     dry_run: bool = False
     diagnostic: bool = False
+    external: bool = False
 
     def validate(self) -> None:
         if self.profile != "all" and self.profile not in PROFILES:
@@ -159,21 +167,13 @@ class RunConfig:
             raise ValueError("concurrency and requests-per-worker must be positive")
         if self.ramp_seconds < 0 or self.soak_seconds <= 0:
             raise ValueError("ramp-seconds must be non-negative and soak-seconds positive")
-        if not self.dry_run:
+        if not self.dry_run and not self.external:
             validate_database_url(self.database_url)
 
 
 def validate_database_url(value: str) -> str:
     """Fail closed: only the dedicated PostgreSQL stress database is allowed."""
-    if not value or not value.strip():
-        raise ValueError("STUDY_BUDDY_TEST_DATABASE_URL must be set for a live run")
-    try:
-        parsed = make_url(value.strip())
-    except Exception as exc:  # SQLAlchemy supplies several URL parsing errors.
-        raise ValueError("STUDY_BUDDY_TEST_DATABASE_URL is not a valid database URL") from exc
-    if parsed.get_backend_name() != "postgresql" or parsed.database != TEST_DATABASE_NAME:
-        raise ValueError("STUDY_BUDDY_TEST_DATABASE_URL must target PostgreSQL database 'study_buddy_test'")
-    return value.strip()
+    return validate_fixture_database_url(value)
 
 
 def cleanup_plan() -> tuple[str, ...]:
@@ -185,14 +185,6 @@ def cleanup_plan() -> tuple[str, ...]:
             "media", "quiz_questions", "flashcards", "quizzes", "flashcard_decks", "user_settings", "users")
 
 
-def require_migrated_schema(engine) -> None:
-    with engine.connect() as connection:
-        existing = set(connection.dialect.get_table_names(connection))
-    missing = REQUIRED_TABLES - existing
-    if missing:
-        raise RuntimeError("The PostgreSQL test database is not migrated; missing: " + ", ".join(sorted(missing)))
-
-
 @dataclass
 class Observation:
     operation: str
@@ -200,6 +192,11 @@ class Observation:
     latency_ms: float
     expected: bool
     error: str | None = None
+    request_number: int | None = None
+    timestamp_utc: str | None = None
+    method: str | None = None
+    endpoint: str | None = None
+    concurrency: int | None = None
 
 
 @dataclass
@@ -252,7 +249,12 @@ def worker_start_delay(worker: int, config: RunConfig) -> float:
     return config.ramp_seconds * worker / (config.concurrency - 1)
 
 
-def execute(config: RunConfig, operation: Callable[[], Observation]) -> list[OperationMetrics]:
+def execute(
+    config: RunConfig,
+    operation: Callable[[], Observation],
+    *,
+    observation_sink: list[Observation] | None = None,
+) -> list[OperationMetrics]:
     """Execute one prepared operation concurrently; callers own seed/cleanup.
 
     Keeping transport/fixture setup outside this small executor makes the
@@ -276,6 +278,8 @@ def execute(config: RunConfig, operation: Callable[[], Observation]) -> list[Ope
                 observation = Observation("harness", None, 0.0, False, type(exc).__name__)
             with lock:
                 observations.append(observation)
+                if observation_sink is not None:
+                    observation_sink.append(observation)
             remaining -= 1
 
     with ThreadPoolExecutor(max_workers=config.concurrency) as pool:
@@ -314,16 +318,28 @@ def run_provenance(config: RunConfig, fixture: dict) -> dict:
         "harness_revision": "uncommitted-source",
         "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "configuration": public_config(config),
-        "database_identifier": f"postgresql/{TEST_DATABASE_NAME}",
+        "database_identifier": (
+            "remote-server-managed; expected postgresql/study_buddy_test; not inspected by client"
+            if config.external else f"postgresql/{TEST_DATABASE_NAME}"
+        ),
         "fixture": fixture,
     }
 
 
-def write_results(metrics: list[OperationMetrics], json_path: Path | None, csv_path: Path | None, *, provenance: dict | None = None) -> None:
+def write_results(
+    metrics: list[OperationMetrics],
+    json_path: Path | None,
+    csv_path: Path | None,
+    *,
+    provenance: dict | None = None,
+    observations: list[Observation] | None = None,
+) -> None:
     rows = [asdict(item) for item in metrics]
     if json_path:
         json_path.parent.mkdir(parents=True, exist_ok=True)
         payload = rows if provenance is None else {"provenance": provenance, "results": rows}
+        if observations is not None and isinstance(payload, dict):
+            payload["requests"] = [asdict(item) for item in observations]
         json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     if csv_path:
         csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -445,7 +461,16 @@ def _summarize_diagnostic_traces(traces: list[dict], samples: list[dict]) -> dic
     }
 
 
-def _http(base_url: str, definition: OperationDefinition, *, token: str = "", body=None, values=None) -> Observation:
+def _http(
+    base_url: str,
+    definition: OperationDefinition,
+    *,
+    token: str = "",
+    body=None,
+    values=None,
+    request_number: int | None = None,
+    concurrency: int | None = None,
+) -> Observation:
     path = definition.path.format(**(values or {}))
     data = None if body is None else json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json"} if data else {}
@@ -458,8 +483,16 @@ def _http(base_url: str, definition: OperationDefinition, *, token: str = "", bo
     except HTTPError as exc:
         status = exc.code
     except Exception as exc:
-        return Observation(definition.name, None, (time.perf_counter() - started) * 1000, False, type(exc).__name__)
-    return Observation(definition.name, status, (time.perf_counter() - started) * 1000, status in definition.expected_statuses)
+        return Observation(
+            definition.name, None, (time.perf_counter() - started) * 1000, False,
+            type(exc).__name__, request_number, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            definition.method, path, concurrency,
+        )
+    return Observation(
+        definition.name, status, (time.perf_counter() - started) * 1000,
+        status in definition.expected_statuses, None, request_number,
+        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), definition.method, path, concurrency,
+    )
 
 
 def _json_request(base_url: str, method: str, path: str, token: str, body=None) -> tuple[int, dict]:
@@ -500,6 +533,117 @@ def _start_server(app):
     server.should_exit = True
     thread.join(2)
     raise RuntimeError("loopback Uvicorn server did not become ready")
+
+
+def external_health_check(base_url: str) -> dict[str, int]:
+    """Check the normal remote health endpoints without changing server state."""
+    origin = normalize_base_url(base_url)
+    statuses: dict[str, int] = {}
+    for path in ("/health", "/ready"):
+        try:
+            with urlopen(origin + path, timeout=10) as response:
+                statuses[path] = response.status
+        except HTTPError as exc:
+            statuses[path] = exc.code
+    if statuses != {"/health": 200, "/ready": 200}:
+        raise RuntimeError(f"external API is not healthy and ready: {statuses}")
+    return statuses
+
+
+def _login_token(base_url: str, username: str, password: str) -> str:
+    request = Request(
+        base_url + "/api/v1/auth/login",
+        data=json.dumps({"login": username, "password": password}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(request, timeout=15) as response:
+        payload = json.loads(response.read())
+    token = payload.get("access_token")
+    if not isinstance(token, str) or not token:
+        raise RuntimeError(f"authentication returned no access token for {username}")
+    return token
+
+
+def run_external(config: RunConfig, manifest: dict, base_url: str) -> tuple[list[OperationMetrics], dict, list[Observation]]:
+    """Run the established read workload as an HTTP-only external client."""
+    config.validate()
+    validate_manifest(manifest)
+    origin = normalize_base_url(base_url)
+    if origin != normalize_base_url(manifest["base_url"]):
+        raise ValueError("--base-url must match the fixture manifest base_url")
+    if config.concurrency != manifest["concurrency"]:
+        raise ValueError("external concurrency must equal the fixture manifest concurrency")
+    if config.profile not in {"multi-account", "diagnostic-read"}:
+        raise ValueError("external mode currently supports multi-account or diagnostic-read explicitly")
+    if config.diagnostic:
+        raise ValueError("in-process server diagnostics are unavailable in external mode")
+    external_health_check(origin)
+
+    accounts = manifest["accounts"]
+    students = [item["username"] for item in accounts["students"]]
+    password = accounts["password"]
+    # Preserve the established authentication pattern: two independent
+    # sessions for student zero, one session for each remaining student, and
+    # one separately measured login request.
+    token_a = _login_token(origin, students[0], password)
+    _token_b = _login_token(origin, students[0], password)
+    account_tokens = [token_a, *(_login_token(origin, item, password) for item in students[1:])]
+    observations: list[Observation] = []
+    login = OperationDefinition("login", "POST", "/api/v1/auth/login")
+    measured_login = _http(
+        origin, login, body={"login": students[0], "password": password},
+        request_number=1, concurrency=config.concurrency,
+    )
+    observations.append(measured_login)
+    metrics = aggregate([measured_login], .001)
+
+    quiz_ids = manifest["content_ids"]["quizzes"]
+    values = {
+        "quiz_id": quiz_ids["primary"],
+        "restricted_quiz_id": quiz_ids["restricted"],
+        "media_id": manifest["content_ids"]["media"],
+        "content_version": manifest["content_ids"]["content_version"],
+    }
+    definitions = (
+        OperationDefinition("available_metadata", "GET", "/api/v1/content/metadata"),
+        OperationDefinition("preview", "GET", "/api/v1/content/bodies/quiz/{quiz_id}"),
+        OperationDefinition("practice_download", "GET", "/api/v1/content/practice-packages/quiz/{quiz_id}"),
+        OperationDefinition("media_manifest", "GET", "/api/v1/content/media-manifests/quiz/{quiz_id}"),
+        OperationDefinition("media_read", "GET", "/api/v1/content/media/quiz/{quiz_id}/{media_id}?expected_content_version={content_version}"),
+        OperationDefinition("restricted_denied", "GET", "/api/v1/content/bodies/quiz/{restricted_quiz_id}", (404,)),
+    )
+    if config.profile == "diagnostic-read":
+        definitions = definitions[1:3]
+    request_number = 1
+    request_lock = threading.Lock()
+    for definition in definitions:
+        cursor = iter(range(config.concurrency * config.requests_per_worker))
+        cursor_lock = threading.Lock()
+
+        def account_read(definition=definition):
+            nonlocal request_number
+            with cursor_lock:
+                index = next(cursor, 0)
+            with request_lock:
+                request_number += 1
+                current_request = request_number
+            return _http(
+                origin, definition, token=account_tokens[index % len(account_tokens)], values=values,
+                request_number=current_request, concurrency=config.concurrency,
+            )
+
+        metrics.extend(execute(config, account_read, observation_sink=observations))
+    fixture = {
+        "identity": manifest["fixture_id"],
+        "version": manifest["fixture_version"],
+        "mode": "external-http-client",
+        "base_url": origin,
+        "latency_scope": "client_observed_end_to_end",
+        "latency_path": "W1 client -> LAN -> W2 FastAPI -> W2 PostgreSQL -> W2 FastAPI -> LAN -> W1 client",
+        "server_side_diagnostics": "not collected by external client",
+    }
+    return metrics, fixture, observations
 
 
 def _install_diagnostics(app, engine, database_url: str):
@@ -686,22 +830,15 @@ def _install_diagnostics(app, engine, database_url: str):
 def run_live(config: RunConfig) -> tuple[list[OperationMetrics], dict]:
     """Run a small real-HTTP, PostgreSQL-backed scenario and clean its own data."""
     config.validate()
-    from sqlalchemy import create_engine, delete, func, select
+    from sqlalchemy import create_engine, func, select
     from sqlalchemy.orm import sessionmaker
     from src.api.main import create_app
-    from src.logic.passwords import PasswordHasher
     from src.storage.postgres_class_repository import PostgresClassRepository
     from src.storage.postgres_content_body_repository import PostgresContentBodyRepository
     from src.storage.postgres_content_history_repository import PostgresContentHistoryRepository
     from src.storage.postgres_content_metadata_repository import PostgresContentMetadataRepository
     from src.storage.postgres_learning_repository import PostgresLearningRepository
-    from src.storage.postgres_models import (
-        AccountModerationHistoryModel, ClassFlashcardDeckModel, ClassInvitationModel, ClassMemberModel, ClassModel, ClassQuizModel,
-        FlashcardDeckMetadataModel, FlashcardEditHistoryModel, FlashcardMediaModel, FlashcardModel, FlashcardModerationHistoryModel,
-        FlashcardProgressModel, MediaModel, QuestionMediaModel, QuizAttemptAnswerModel, QuizAttemptModel, QuizAttemptQuestionModel,
-        QuizEditHistoryModel, QuizMetadataModel, QuizModerationHistoryModel, QuizQuestionModel, QuizQuestionProgressModel,
-        UserModel, UserSessionModel, UserSettingsModel,
-    )
+    from src.storage.postgres_models import QuizAttemptAnswerModel, QuizAttemptModel
     from src.storage.postgres_session_repository import PostgresSessionRepository
     from src.storage.postgres_user_repository import PostgresUserRepository
 
@@ -726,30 +863,18 @@ def run_live(config: RunConfig) -> tuple[list[OperationMetrics], dict]:
                          content_body_repository=bodies, content_history_repository=PostgresContentHistoryRepository(sessions))
         if config.diagnostic:
             diagnostics_finish = _install_diagnostics(app, engine, config.database_url)
-        teacher_id = f"{prefix}-teacher"
+        fixture_manifest = build_fixture_manifest(
+            config.concurrency, "http://127.0.0.1", fixture_id=prefix, password="password1"
+        )
+        fixture_manifest = seed_fixture(sessions, metadata, bodies, classes, fixture_manifest)
+        teacher_id = fixture_manifest["accounts"]["teacher"]["username"]
         # The different-student profile needs one distinct authorized identity
         # per worker, including c=20; do not silently reduce that contention.
-        student_ids = [f"{prefix}-student-{index}" for index in range(max(2, config.concurrency))]
+        student_ids = [item["username"] for item in fixture_manifest["accounts"]["students"]]
         student_id = student_ids[0]
-        quiz_id = f"{prefix}-quiz"
-        different_quiz_id = f"{prefix}-different-students-quiz"
-        terminal_quiz_id = f"{prefix}-terminal-submit-quiz"
-        with sessions.begin() as session:
-            for user_id, role in [(teacher_id, "teacher"), *((item, "student") for item in student_ids)]:
-                session.add(UserModel(id=user_id, username=user_id, email=f"{user_id}@stress.invalid", password_hash=PasswordHasher.hash("password1"), display_name=role, role=role, status="active"))
-        for seeded_quiz_id, name in ((quiz_id, "Phase 7 same-user"), (different_quiz_id, "Phase 7 different students"), (terminal_quiz_id, "Phase 7 terminal submit")):
-            assert metadata.import_quiz({"id": seeded_quiz_id, "name": name, "moderation": {"owner_id": teacher_id, "status": "published", "visibility": "class_only"}, "test_settings": {"attempt_limit": 1}}, f"stress://{prefix}/{seeded_quiz_id}")
-        uploaded = bodies.register_uploaded_media(teacher_id, TINY_PNG_BYTES, "phase7.png")
-        for seeded_quiz_id in (quiz_id, different_quiz_id, terminal_quiz_id):
-            assert bodies.import_quiz({"id": seeded_quiz_id, "questions": [{"id": f"{seeded_quiz_id}-q1", "question": "One?", "type": "short_answer", "answer": "one", "image_path": uploaded["media_id"]}]})
-        class_id = classes.class_id_for("quiz", quiz_id)
-        with sessions.begin() as session:
-            session.add(ClassModel(id=class_id, owner_id=teacher_id, name="Phase 7", status="active"))
-            session.flush()
-            for seeded_quiz_id in (quiz_id, different_quiz_id, terminal_quiz_id):
-                session.add(ClassQuizModel(class_id=class_id, quiz_id=seeded_quiz_id))
-            for member_id in student_ids:
-                session.add(ClassMemberModel(class_id=class_id, user_id=member_id, status="active"))
+        quiz_id = fixture_manifest["content_ids"]["quizzes"]["primary"]
+        different_quiz_id = fixture_manifest["content_ids"]["quizzes"]["different_students"]
+        terminal_quiz_id = fixture_manifest["content_ids"]["quizzes"]["terminal_submit"]
         base_url, shutdown = _start_server(app)
         login = OperationDefinition("login", "POST", "/api/v1/auth/login")
         # Two distinct sessions are deliberately required by the product rule.
@@ -767,7 +892,7 @@ def run_live(config: RunConfig) -> tuple[list[OperationMetrics], dict]:
         profiles = {item.name for item in selected_profiles(config.profile)}
         account_token_by_student = dict(zip(student_ids, account_tokens, strict=True))
         current_version = metadata.get_by_id("quiz", quiz_id)["content_version"]
-        values = {"quiz_id": quiz_id, "class_quiz_id": quiz_id, "owned_quiz_id": quiz_id, "restricted_quiz_id": "missing", "attempt_id": "", "media_id": uploaded["media_id"], "content_version": current_version}
+        values = {"quiz_id": quiz_id, "class_quiz_id": quiz_id, "owned_quiz_id": quiz_id, "restricted_quiz_id": "missing", "attempt_id": "", "media_id": fixture_manifest["content_ids"]["media"], "content_version": current_version}
         if "multi-account" in profiles:
             read = [OperationDefinition("available_metadata", "GET", "/api/v1/content/metadata"), OperationDefinition("preview", "GET", "/api/v1/content/bodies/quiz/{quiz_id}"), OperationDefinition("practice_download", "GET", "/api/v1/content/practice-packages/quiz/{quiz_id}"), OperationDefinition("media_manifest", "GET", "/api/v1/content/media-manifests/quiz/{quiz_id}"), OperationDefinition("media_read", "GET", "/api/v1/content/media/quiz/{quiz_id}/{media_id}?expected_content_version={content_version}"), OperationDefinition("restricted_denied", "GET", "/api/v1/content/bodies/quiz/{restricted_quiz_id}", (404,))]
             for definition in read:
@@ -938,37 +1063,8 @@ def run_live(config: RunConfig) -> tuple[list[OperationMetrics], dict]:
         try:
             if shutdown:
                 shutdown()
-            # Explicit child-first cleanup prevents this diagnostic from leaving
-            # rows behind even if future migrations relax a cascade.
-            with sessions.begin() as session:
-                user_ids = [teacher_id, *student_ids] if "teacher_id" in locals() else []
-                class_ids = [class_id] if "class_id" in locals() else []
-                attempt_ids = select(QuizAttemptModel.id).where(QuizAttemptModel.user_id.in_(user_ids), QuizAttemptModel.quiz_id.like(prefix + "%"))
-                session.execute(delete(UserSessionModel).where(UserSessionModel.user_id.in_(user_ids)))
-                session.execute(delete(QuizAttemptAnswerModel).where(QuizAttemptAnswerModel.attempt_id.in_(attempt_ids)))
-                session.execute(delete(QuizAttemptQuestionModel).where(QuizAttemptQuestionModel.attempt_id.in_(attempt_ids)))
-                session.execute(delete(QuizAttemptModel).where(QuizAttemptModel.user_id.in_(user_ids), QuizAttemptModel.quiz_id.like(prefix + "%")))
-                session.execute(delete(QuizQuestionProgressModel).where(QuizQuestionProgressModel.user_id.in_(user_ids)))
-                session.execute(delete(FlashcardProgressModel).where(FlashcardProgressModel.user_id.in_(user_ids)))
-                session.execute(delete(ClassInvitationModel).where(ClassInvitationModel.class_id.in_(class_ids)))
-                session.execute(delete(ClassMemberModel).where(ClassMemberModel.class_id.in_(class_ids)))
-                session.execute(delete(ClassQuizModel).where(ClassQuizModel.class_id.in_(class_ids)))
-                session.execute(delete(ClassFlashcardDeckModel).where(ClassFlashcardDeckModel.class_id.in_(class_ids)))
-                session.execute(delete(ClassModel).where(ClassModel.id.in_(class_ids)))
-                session.execute(delete(QuestionMediaModel).where(QuestionMediaModel.quiz_id.like(prefix + "%")))
-                session.execute(delete(FlashcardMediaModel).where(FlashcardMediaModel.deck_id.like(prefix + "%")))
-                session.execute(delete(QuizEditHistoryModel).where(QuizEditHistoryModel.quiz_id.like(prefix + "%")))
-                session.execute(delete(FlashcardEditHistoryModel).where(FlashcardEditHistoryModel.deck_id.like(prefix + "%")))
-                session.execute(delete(QuizModerationHistoryModel).where(QuizModerationHistoryModel.quiz_id.like(prefix + "%")))
-                session.execute(delete(FlashcardModerationHistoryModel).where(FlashcardModerationHistoryModel.deck_id.like(prefix + "%")))
-                session.execute(delete(MediaModel).where(MediaModel.owner_id.in_(user_ids)))
-                session.execute(delete(QuizQuestionModel).where(QuizQuestionModel.quiz_id.like(prefix + "%")))
-                session.execute(delete(FlashcardModel).where(FlashcardModel.deck_id.like(prefix + "%")))
-                session.execute(delete(QuizMetadataModel).where(QuizMetadataModel.id.like(prefix + "%")))
-                session.execute(delete(FlashcardDeckMetadataModel).where(FlashcardDeckMetadataModel.id.like(prefix + "%")))
-                session.execute(delete(UserSettingsModel).where(UserSettingsModel.user_id.in_(user_ids)))
-                session.execute(delete(AccountModerationHistoryModel).where(AccountModerationHistoryModel.target_user_id.in_(user_ids)))
-                session.execute(delete(UserModel).where(UserModel.id.in_(user_ids)))
+            if "fixture_manifest" in locals():
+                cleanup_fixture_rows(sessions, fixture_manifest)
         except Exception as exc:
             cleanup_error = exc
         finally:
@@ -1000,6 +1096,9 @@ def main() -> int:
     parser.add_argument("--soak-seconds", type=float, default=15.0)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--diagnostic", action="store_true", help="temporary in-process pool/SQL/resource telemetry for isolated test runs")
+    parser.add_argument("--base-url", help="external FastAPI origin; enables HTTP-only client mode")
+    parser.add_argument("--fixture-manifest", type=Path, help="credential manifest created on W2 by phase7_fixture.py")
+    parser.add_argument("--health-check-only", action="store_true", help="check external /health and /ready, then exit")
     parser.add_argument("--json-output", type=Path)
     parser.add_argument("--csv-output", type=Path)
     args = parser.parse_args()
@@ -1008,7 +1107,18 @@ def main() -> int:
     args.csv_output = args.csv_output or default_csv
     config = RunConfig(args.profile, args.shape, args.concurrency, args.requests_per_worker,
                        args.ramp_seconds, args.soak_seconds,
-                       os.getenv("STUDY_BUDDY_TEST_DATABASE_URL", ""), args.dry_run, args.diagnostic)
+                       os.getenv("STUDY_BUDDY_TEST_DATABASE_URL", ""), args.dry_run, args.diagnostic,
+                       external=bool(args.base_url))
+    if args.health_check_only:
+        if not args.base_url:
+            parser.error("--health-check-only requires --base-url")
+        try:
+            print(json.dumps({"base_url": normalize_base_url(args.base_url), "statuses": external_health_check(args.base_url)}, indent=2))
+        except (RuntimeError, ValueError) as exc:
+            parser.error(str(exc))
+        return 0
+    if bool(args.base_url) != bool(args.fixture_manifest):
+        parser.error("external mode requires both --base-url and --fixture-manifest")
     try:
         config.validate()
     except ValueError as exc:
@@ -1026,10 +1136,21 @@ def main() -> int:
                 for operation in profile.operations:
                     writer.writerow({"profile": profile.name, "operation": operation.name, "method": operation.method, "path": operation.path, "expected_statuses": "/".join(map(str, operation.expected_statuses))})
         return 0
-    metrics, fixture = run_live(config)
+    observations = None
+    if args.base_url:
+        try:
+            manifest = load_manifest(args.fixture_manifest)
+            metrics, fixture, observations = run_external(config, manifest, args.base_url)
+        except (HTTPError, OSError, RuntimeError, ValueError) as exc:
+            parser.error(str(exc))
+    else:
+        metrics, fixture = run_live(config)
     provenance = run_provenance(config, fixture)
-    write_results(metrics, args.json_output, args.csv_output, provenance=provenance)
-    print(json.dumps({"provenance": provenance, "deferred": DEFERRED_SLICES, "results": [asdict(item) for item in metrics]}, indent=2))
+    write_results(metrics, args.json_output, args.csv_output, provenance=provenance, observations=observations)
+    console_payload = {"provenance": provenance, "deferred": DEFERRED_SLICES, "results": [asdict(item) for item in metrics]}
+    if observations is not None:
+        console_payload["requests"] = [asdict(item) for item in observations]
+    print(json.dumps(console_payload, indent=2))
     return 0
 
 
