@@ -117,6 +117,7 @@
     "theme_label": "🌙 Theme",
     "language_label": "🌍 Language",
     "btn_account_settings": "Account Settings",
+    "btn_security_settings": "Security",
     "btn_clear_guest_data": "Clear Guest Learning Data",
     "theme_dark": "Dark",
     "theme_light": "Light",
@@ -128,6 +129,28 @@
     "btn_clear_quiz_progress": "Clear My Quiz Progress",
     "confirm_clear_quiz_title": "Clear All Quiz Progress?",
     "confirm_clear_quiz_message": "Clear saved quiz learning progress for {name}? This cannot be undone."
+  },
+
+  "security_settings": {
+    "title": "SECURITY",
+    "password_title": "Change Password",
+    "current_password": "Current password",
+    "new_password": "New password (at least 8 characters)",
+    "confirm_password": "Confirm new password",
+    "btn_change_password": "Change Password",
+    "sessions_title": "Active Sessions",
+    "last_login": "Last successful login: {value}",
+    "never": "Never",
+    "current": "(current)",
+    "unknown_device": "Unknown device",
+    "btn_terminate": "Terminate",
+    "btn_sign_out_others": "Sign out all other sessions",
+    "confirm_title": "Confirm action",
+    "confirm_terminate": "Terminate this session?",
+    "confirm_sign_out_others": "Sign out all other sessions?",
+    "btn_close": "Close",
+    "msg_password_mismatch": "New passwords do not match",
+    "msg_password_saved": "Password changed"
   },
 
   "quiz_view": {

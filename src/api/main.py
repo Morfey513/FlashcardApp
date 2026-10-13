@@ -4,6 +4,8 @@ import base64
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import JSONResponse
 
@@ -31,7 +33,10 @@ from src.api.schemas import (
     QuizAttemptRequest,
     AssessmentResponseRequest,
     AssessmentSubmitRequest,
+    AdminSessionResponse,
     TokenResponse,
+    SessionListResponse,
+    SessionResponse,
     UserResponse,
 )
 from src.storage.postgres_session_repository import PostgresSessionRepository
@@ -93,6 +98,22 @@ def create_app(
             content={"detail": "Persistence service is temporarily unavailable"},
         )
 
+    @app.exception_handler(RequestValidationError)
+    async def login_validation_error_redaction(request: Request, exc: RequestValidationError):
+        """Keep client fingerprint material out of public validation bodies."""
+        if request.url.path != "/api/v1/auth/login":
+            return await request_validation_exception_handler(request, exc)
+        errors = []
+        for error in exc.errors():
+            cleaned = dict(error)
+            # Pydantic's normal error shape includes the rejected request value
+            # in ``input``.  The authentication response is public, so never
+            # reflect device metadata (or credentials) from this endpoint.
+            cleaned.pop("input", None)
+            cleaned.pop("ctx", None)
+            errors.append(cleaned)
+        return JSONResponse(status_code=422, content={"detail": errors})
+
     def current_token(
         credentials: Annotated[
             HTTPAuthorizationCredentials | None, Depends(bearer)
@@ -142,8 +163,24 @@ def create_app(
         )
         return result
 
-    def token_response(request: Request, user: dict) -> TokenResponse:
-        token, expires_in = request.app.state.session_repository.create(user["id"])
+    def token_response(
+        request: Request,
+        user: dict,
+        *,
+        client_label: str | None = None,
+        device_fingerprint: str | None = None,
+    ) -> TokenResponse:
+        # The local deployment does not trust forwarded headers.  Phase 2 owns
+        # proxy/network hardening, so the peer address is the only server-side
+        # value captured here.
+        client = request.client
+        ip_address = client.host if client is not None else None
+        token, expires_in = request.app.state.session_repository.create(
+            user["id"],
+            ip_address=ip_address,
+            client_label=client_label,
+            device_fingerprint=device_fingerprint,
+        )
         return TokenResponse(
             access_token=token,
             expires_in=expires_in,
@@ -197,7 +234,12 @@ def create_app(
             if ban_message:
                 raise HTTPException(status.HTTP_403_FORBIDDEN, ban_message)
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid login or password")
-        return token_response(request, user)
+        return token_response(
+            request,
+            user,
+            client_label=payload.client_label,
+            device_fingerprint=payload.device_fingerprint,
+        )
 
     @app.post(
         "/api/v1/auth/logout",
@@ -211,6 +253,68 @@ def create_app(
     ):
         request.app.state.session_repository.revoke(token)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.get(
+        "/api/v1/auth/sessions",
+        response_model=SessionListResponse,
+        tags=["authentication"],
+    )
+    def active_sessions(
+        request: Request,
+        token: Annotated[str, Depends(current_token)],
+        user: Annotated[dict, Depends(current_user)],
+    ):
+        sessions, last_login = request.app.state.session_repository.list_active(
+            user["id"], token
+        )
+        return {"sessions": sessions, "last_successful_login_at": last_login}
+
+    @app.delete(
+        "/api/v1/auth/sessions/{session_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        tags=["authentication"],
+    )
+    def terminate_session(
+        session_id: str,
+        request: Request,
+        _token: Annotated[str, Depends(current_token)],
+        user: Annotated[dict, Depends(current_user)],
+    ):
+        # This remains owner-only even for administrators.
+        if not request.app.state.session_repository.revoke_owned(user["id"], session_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Session was not found")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.post(
+        "/api/v1/auth/sessions/sign-out-others",
+        response_model=MessageResponse,
+        tags=["authentication"],
+    )
+    def sign_out_other_sessions(
+        request: Request,
+        token: Annotated[str, Depends(current_token)],
+        user: Annotated[dict, Depends(current_user)],
+    ):
+        count = request.app.state.session_repository.revoke_others(user["id"], token)
+        return {"message": f"Signed out {count} other session(s)"}
+
+    @app.get(
+        "/api/v1/admin/users/{user_id}/sessions",
+        response_model=list[AdminSessionResponse],
+        tags=["administration"],
+    )
+    def admin_user_sessions(
+        user_id: str,
+        request: Request,
+        token: Annotated[str, Depends(current_token)],
+        _admin: Annotated[dict, Depends(current_admin)],
+    ):
+        # The target need not expose its account details here; an empty list
+        # safely represents an account with no active sessions.
+        sessions, _last_login = request.app.state.session_repository.list_active(
+            user_id, token, include_fingerprint=True
+        )
+        return sessions
 
     @app.get(
         "/api/v1/users/me", response_model=UserResponse, tags=["account"]

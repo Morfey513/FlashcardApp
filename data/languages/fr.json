@@ -117,6 +117,7 @@
     "theme_label": "🌙 Thème",
     "language_label": "🌍 Langue",
     "btn_account_settings": "Parametres du compte",
+    "btn_security_settings": "Securite",
     "btn_clear_guest_data": "Effacer les donnees d apprentissage invite",
     "theme_dark": "Sombre",
     "theme_light": "Clair",
@@ -128,6 +129,28 @@
     "btn_clear_quiz_progress": "Effacer mon progres quiz",
     "confirm_clear_quiz_title": "Effacer tout le progres quiz ?",
     "confirm_clear_quiz_message": "Effacer le progres quiz enregistre pour {name} ? Cette action est irreversible."
+  },
+
+  "security_settings": {
+    "title": "SECURITE",
+    "password_title": "Changer le mot de passe",
+    "current_password": "Mot de passe actuel",
+    "new_password": "Nouveau mot de passe (8 caracteres minimum)",
+    "confirm_password": "Confirmer le nouveau mot de passe",
+    "btn_change_password": "Changer le mot de passe",
+    "sessions_title": "Sessions actives",
+    "last_login": "Derniere connexion reussie : {value}",
+    "never": "Jamais",
+    "current": "(actuelle)",
+    "unknown_device": "Appareil inconnu",
+    "btn_terminate": "Terminer",
+    "btn_sign_out_others": "Deconnecter toutes les autres sessions",
+    "confirm_title": "Confirmer l action",
+    "confirm_terminate": "Terminer cette session ?",
+    "confirm_sign_out_others": "Deconnecter toutes les autres sessions ?",
+    "btn_close": "Fermer",
+    "msg_password_mismatch": "Les nouveaux mots de passe ne correspondent pas",
+    "msg_password_saved": "Mot de passe change"
   },
 
   "quiz_view": {

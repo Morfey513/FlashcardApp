@@ -1,6 +1,7 @@
 """Validated request and response models for the identity API."""
 
 from typing import Any, Literal
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,6 +19,8 @@ class RegistrationRequest(StrictRequest):
 class LoginRequest(StrictRequest):
     login: str = Field(min_length=1, max_length=50)
     password: str = Field(min_length=1, max_length=1024)
+    client_label: str | None = Field(default=None, min_length=1, max_length=120, pattern=r"^[^\r\n]*$")
+    device_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class PreferencesRequest(StrictRequest):
@@ -69,6 +72,24 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     user: UserResponse
+
+
+class SessionResponse(BaseModel):
+    id: str
+    created_at: datetime
+    last_activity_at: datetime | None = None
+    ip_address: str | None = None
+    client_label: str | None = None
+    is_current: bool
+
+
+class SessionListResponse(BaseModel):
+    sessions: list[SessionResponse]
+    last_successful_login_at: datetime | None = None
+
+
+class AdminSessionResponse(SessionResponse):
+    device_fingerprint: str | None = None
 
 
 class ContentMetadataRequest(StrictRequest):

@@ -3,6 +3,9 @@
 import json
 import logging
 import os
+import hashlib
+import platform
+import uuid
 from typing import Dict, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -91,7 +94,11 @@ class HttpUserRepository:
     def authenticate(self, login: str, password: str) -> Optional[Dict]:
         self._ban_messages.pop(login.casefold(), None)
         code, body = self._request(
-            "POST", "/api/v1/auth/login", {"login": login, "password": password}
+            "POST", "/api/v1/auth/login", {
+                "login": login,
+                "password": password,
+                **self._login_device_metadata(),
+            }
         )
         if code == 200 and isinstance(body, dict):
             return self._accept_session(body)
@@ -100,6 +107,42 @@ class HttpUserRepository:
         self._token = None
         self._current_user = None
         return None
+
+    @staticmethod
+    def _login_device_metadata() -> dict[str, str]:
+        """Produce the only device value that may cross the HTTP boundary."""
+        system = platform.system().strip() or "Desktop"
+        release = platform.release().strip()
+        label = " ".join(part for part in (system, release) if part)[:120]
+        # Keep raw machine properties local; only this one-way digest is sent.
+        raw = "\x1f".join((platform.node(), str(uuid.getnode()), system, release))
+        return {
+            "client_label": label or "Desktop",
+            "device_fingerprint": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+        }
+
+    def list_active_sessions(self) -> dict:
+        code, body = self._request("GET", "/api/v1/auth/sessions", authenticated=True)
+        if code == 200 and isinstance(body, dict):
+            sessions = body.get("sessions")
+            if isinstance(sessions, list):
+                return {
+                    "sessions": [dict(item) for item in sessions if isinstance(item, dict)],
+                    "last_successful_login_at": body.get("last_successful_login_at"),
+                }
+        return {"sessions": [], "last_successful_login_at": None}
+
+    def terminate_session(self, session_id: str) -> bool:
+        code, _body = self._request(
+            "DELETE", f"/api/v1/auth/sessions/{session_id}", authenticated=True
+        )
+        return code == 204
+
+    def sign_out_other_sessions(self) -> bool:
+        code, _body = self._request(
+            "POST", "/api/v1/auth/sessions/sign-out-others", authenticated=True
+        )
+        return code == 200
 
     def register(
         self, name: str, login: str, password: str

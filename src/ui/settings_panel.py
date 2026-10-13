@@ -23,6 +23,7 @@ class SettingsPanel(QWidget):
     clear_all_progress_requested = pyqtSignal()
     clear_downloaded_data_requested = pyqtSignal()
     account_requested = pyqtSignal()
+    security_requested = pyqtSignal()
     closed = pyqtSignal()
 
     def __init__(self, position="side", parent=None):
@@ -122,6 +123,12 @@ class SettingsPanel(QWidget):
         self.account_btn.hide()
         layout.addWidget(self.account_btn)
 
+        self.security_btn = QPushButton()
+        self.security_btn.setObjectName("settings_account_btn")
+        self.security_btn.clicked.connect(self.security_requested.emit)
+        self.security_btn.hide()
+        layout.addWidget(self.security_btn)
+
         layout.addStretch()
 
     def retranslate_ui(self):
@@ -135,6 +142,7 @@ class SettingsPanel(QWidget):
         self.lang_label.setText(t.t(f"{sec}.language_label"))
         self.clear_all_progress_btn.setText(t.t(f"{sec}.btn_clear_guest_data"))
         self.account_btn.setText(t.t(f"{sec}.btn_account_settings"))
+        self.security_btn.setText(t.t(f"{sec}.btn_security_settings"))
 
         # Rebuild Theme Combo
         self.theme_combo.blockSignals(True)
@@ -187,4 +195,5 @@ class SettingsPanel(QWidget):
     def set_authenticated(self, authenticated: bool):
         """Keep destructive account data inside Account Settings when signed in."""
         self.account_btn.setVisible(authenticated)
+        self.security_btn.setVisible(authenticated)
         self.clear_all_progress_btn.setVisible(not authenticated)

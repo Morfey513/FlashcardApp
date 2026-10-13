@@ -95,6 +95,12 @@ class UserSessionModel(Base):
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # These are deliberately optional so sessions issued before the security
+    # page rollout, and older API clients, remain valid.
+    ip_address: Mapped[str | None] = mapped_column(Text)
+    client_label: Mapped[str | None] = mapped_column(Text)
+    device_fingerprint: Mapped[str | None] = mapped_column(Text)
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AccountModerationHistoryModel(Base):

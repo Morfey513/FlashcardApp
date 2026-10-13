@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.engine import make_url
 
 
-REVISION_HEAD = "20260824_0008"
+REVISION_HEAD = "20261013_0009"
 TEST_DATABASE_NAME = "study_buddy_test"
 
 
@@ -54,6 +54,11 @@ def test_alembic_upgrade_downgrade_and_reupgrade(monkeypatch):
             assert {"users", "quizzes", "quiz_questions", "quiz_attempts", "quiz_attempt_questions"}.issubset(tables)
             content_columns = {column["name"] for column in inspector.get_columns("quizzes")}
             assert "content_version" in content_columns
+            session_columns = {
+                column["name"]: column for column in inspector.get_columns("user_sessions")
+            }
+            for name in ("ip_address", "client_label", "device_fingerprint", "last_activity_at"):
+                assert session_columns[name]["nullable"] is True
 
             attempt_columns = {column["name"]: column for column in inspector.get_columns("quiz_attempts")}
             assert attempt_columns["assessment_snapshot"]["nullable"] is True

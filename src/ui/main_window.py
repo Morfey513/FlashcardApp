@@ -14,6 +14,7 @@ from src.logic.translator import get_translator
 from src.ui.login_dialog import LoginDialog
 from src.ui.registration_dialog import RegistrationDialog
 from src.ui.account_settings_dialog import AccountSettingsDialog
+from src.ui.security_dialog import SecurityDialog
 from src.ui.profile_statistics_dialog import ProfileStatisticsDialog
 from src.ui.settings_panel import SettingsPanel
 from src.ui.account_suspension_dialog import AccountSuspensionDialog
@@ -63,6 +64,7 @@ class MainLauncher(QWidget):
         self.login_dialog = None
         self.registration_dialog = None
         self.account_settings_dialog = None
+        self.security_dialog = None
         self.profile_statistics_dialog = None
         self.settings_panel = None
         self.overlay_widget = None  # Semi-transparent overlay
@@ -149,6 +151,9 @@ class MainLauncher(QWidget):
         if except_overlay != 'account' and self.account_settings_dialog:
             if self.account_settings_dialog.isVisible():
                 self.account_settings_dialog.hide()
+        if except_overlay != 'security' and self.security_dialog:
+            if self.security_dialog.isVisible():
+                self.security_dialog.hide()
 
         # Close settings panel
         if except_overlay != 'settings' and self.settings_panel:
@@ -569,6 +574,7 @@ class MainLauncher(QWidget):
             self.settings_panel.clear_all_progress_requested.connect(self.clear_all_learning_progress)
             self.settings_panel.clear_downloaded_data_requested.connect(self.clear_downloaded_data)
             self.settings_panel.account_requested.connect(self.show_account_settings)
+            self.settings_panel.security_requested.connect(self.show_security)
             self.settings_panel.closed.connect(self.hide_settings)
 
         self.settings_panel.set_theme(self.controller.get_theme())
@@ -620,6 +626,18 @@ class MainLauncher(QWidget):
         )
         self.account_settings_dialog.show()
         self.account_settings_dialog.raise_()
+
+    def show_security(self):
+        """Open password and active-session security settings."""
+        if not self.controller.session.is_authenticated():
+            return
+        self.hide_settings()
+        if not self.security_dialog:
+            self.security_dialog = SecurityDialog(self.controller, self)
+        self._prepare_managed_window(self.security_dialog, "security")
+        self.security_dialog.refresh_security()
+        self.security_dialog.move(self.x() + (self.width() - self.security_dialog.width()) // 2, self.y() + (self.height() - self.security_dialog.height()) // 2)
+        self.security_dialog.show(); self.security_dialog.raise_()
 
     def clear_current_user_progress(self):
         """Confirm and clear only the active user's flashcard progress."""
@@ -880,6 +898,8 @@ class MainLauncher(QWidget):
             self.registration_dialog.retranslate_ui()
         if self.account_settings_dialog:
             self.account_settings_dialog.retranslate_ui()
+        if self.security_dialog:
+            self.security_dialog.retranslate_ui()
         if self.profile_statistics_dialog:
             self.profile_statistics_dialog.retranslate_ui()
             self.profile_statistics_dialog.refresh_statistics()
