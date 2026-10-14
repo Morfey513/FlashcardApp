@@ -129,6 +129,11 @@ from src.storage.errors import RepositoryUnavailable
 @pytest.fixture
 def identity_api(tmp_path, monkeypatch):
     monkeypatch.setenv("STUDY_BUDDY_MEDIA_ROOT", str(tmp_path / "managed-media"))
+    # HTTP login creates a per-install device identity outside the project.
+    # Keep API contract tests inside their disposable directory.
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "user-data"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "user-data"))
+    monkeypatch.setenv("HOME", str(tmp_path))
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'identity_api.db'}")
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine, expire_on_commit=False)

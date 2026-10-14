@@ -5,7 +5,11 @@ import logging
 import os
 import hashlib
 import platform
+import secrets
+import sys
+import time
 import uuid
+from pathlib import Path
 from typing import Dict, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -93,11 +97,18 @@ class HttpUserRepository:
 
     def authenticate(self, login: str, password: str) -> Optional[Dict]:
         self._ban_messages.pop(login.casefold(), None)
+        try:
+            device_metadata = self._login_device_metadata()
+        except (OSError, RuntimeError) as exc:
+            # Metadata is optional for the API; local storage trouble must not
+            # prevent a valid account from signing in.
+            logger.warning("Device metadata unavailable (%s)", type(exc).__name__)
+            device_metadata = {}
         code, body = self._request(
             "POST", "/api/v1/auth/login", {
                 "login": login,
                 "password": password,
-                **self._login_device_metadata(),
+                **device_metadata,
             }
         )
         if code == 200 and isinstance(body, dict):
@@ -114,11 +125,52 @@ class HttpUserRepository:
         system = platform.system().strip() or "Desktop"
         release = platform.release().strip()
         label = " ".join(part for part in (system, release) if part)[:120]
-        # Keep raw machine properties local; only this one-way digest is sent.
-        raw = "\x1f".join((platform.node(), str(uuid.getnode()), system, release))
+        if os.name == "nt":
+            data_root = Path(os.getenv("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        elif sys.platform == "darwin":
+            data_root = Path.home() / "Library" / "Application Support"
+        else:
+            data_root = Path(os.getenv("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+        identity_file = data_root / "StudyBuddy" / "device_identity.json"
+        identity_file.parent.mkdir(parents=True, exist_ok=True)
+        identity = None
+        for attempt in range(5):
+            try:
+                identity = json.loads(identity_file.read_text(encoding="ascii"))
+                break
+            except FileNotFoundError:
+                # Capture hardware signals once. A later NIC change, or a
+                # random uuid.getnode() fallback, cannot rotate this identity.
+                raw = "\x1f".join((platform.node(), str(uuid.getnode()), system, release))
+                candidate = {
+                    "install_id": secrets.token_hex(32),
+                    "hardware_digest": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+                }
+                try:
+                    descriptor = os.open(identity_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                except FileExistsError:
+                    pass
+                else:
+                    with os.fdopen(descriptor, "w", encoding="ascii") as output:
+                        json.dump(candidate, output)
+            except json.JSONDecodeError as exc:
+                if attempt == 4:
+                    raise RuntimeError("Device identity file is invalid") from exc
+            time.sleep(0.02)
+        if not isinstance(identity, dict):
+            raise RuntimeError("Device identity could not be loaded")
+        install_id = identity.get("install_id")
+        hardware_digest = identity.get("hardware_digest")
+        if any(
+            not isinstance(value, str) or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+            for value in (install_id, hardware_digest)
+        ):
+            raise RuntimeError("Device identity file is invalid")
+        fingerprint = hashlib.sha256(f"{install_id}\x1f{hardware_digest}".encode("ascii")).hexdigest()
         return {
             "client_label": label or "Desktop",
-            "device_fingerprint": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+            "device_fingerprint": fingerprint,
         }
 
     def list_active_sessions(self) -> dict:

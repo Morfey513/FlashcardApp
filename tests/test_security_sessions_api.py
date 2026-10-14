@@ -1,5 +1,8 @@
 """Security-page API contracts, including session metadata isolation."""
 
+import json
+import os
+import sys
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -185,7 +188,10 @@ def test_activity_updates_are_throttled(identity_api):
     assert len(updates) == 1
 
 
-def test_http_adapter_only_sends_hashed_device_metadata():
+def test_http_adapter_only_sends_hashed_device_metadata(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
     calls = []
 
     def requester(method, path, payload, headers):
@@ -198,3 +204,41 @@ def test_http_adapter_only_sends_hashed_device_metadata():
     assert len(payload["device_fingerprint"]) == 64
     assert payload["device_fingerprint"].isalnum()
     assert "node" not in payload and "mac" not in payload
+
+
+def test_device_fingerprint_survives_changed_hardware_signals(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("src.storage.http_user_repository.platform.node", lambda: "raw-host-name")
+    monkeypatch.setattr("src.storage.http_user_repository.uuid.getnode", lambda: 123456789)
+    first = HttpUserRepository._login_device_metadata()
+
+    monkeypatch.setattr("src.storage.http_user_repository.platform.node", lambda: "changed-host-name")
+    monkeypatch.setattr("src.storage.http_user_repository.uuid.getnode", lambda: 987654321)
+    second = HttpUserRepository._login_device_metadata()
+    assert first["device_fingerprint"] == second["device_fingerprint"]
+
+    root = tmp_path if os.name == "nt" or sys.platform != "darwin" else tmp_path / "Library" / "Application Support"
+    stored = (root / "StudyBuddy" / "device_identity.json").read_text(encoding="ascii")
+    identity = json.loads(stored)
+    assert len(identity["install_id"]) == 64
+    assert len(identity["hardware_digest"]) == 64
+    assert "raw-host-name" not in stored
+    assert "changed-host-name" not in stored
+    assert "123456789" not in stored
+
+
+def test_login_remains_compatible_when_device_identity_cannot_be_saved(monkeypatch):
+    calls = []
+
+    def requester(_method, _path, payload, _headers):
+        calls.append(payload)
+        return 401, {"detail": "Invalid login or password"}
+
+    def inaccessible_identity():
+        raise PermissionError("private app-data path")
+
+    monkeypatch.setattr(HttpUserRepository, "_login_device_metadata", staticmethod(inaccessible_identity))
+    assert HttpUserRepository(requester=requester).authenticate("student", "password1") is None
+    assert calls == [{"login": "student", "password": "password1"}]

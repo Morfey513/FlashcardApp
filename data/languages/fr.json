@@ -82,7 +82,8 @@
     "msg_name_saved": "Nom affiche enregistre",
     "msg_name_error": "Entrez un nom affiche",
     "msg_password_mismatch": "Les nouveaux mots de passe ne correspondent pas",
-    "msg_password_saved": "Mot de passe change"
+    "msg_password_saved": "Mot de passe change",
+    "msg_load_failed": "Impossible de charger les sessions actives. Veuillez réessayer."
   },
 
   "profile_statistics": {

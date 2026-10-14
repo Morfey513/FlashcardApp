@@ -1,5 +1,6 @@
 """Security settings for password and active server sessions."""
 
+import logging
 from datetime import datetime
 
 from PyQt6.QtCore import QTimer, Qt
@@ -10,6 +11,9 @@ from PyQt6.QtWidgets import (
 )
 
 from src.logic.translator import get_translator
+
+
+logger = logging.getLogger(__name__)
 
 
 class SecurityDialog(QDialog):
@@ -183,8 +187,9 @@ class SecurityDialog(QDialog):
         self.sign_out_others_btn.show()
         try:
             result = repo.list_active_sessions()
-        except Exception as exc:
-            self.show_message(str(exc))
+        except Exception:
+            logger.exception("Could not load active sessions")
+            self.show_message(self.translator.t("security_settings.msg_load_failed"))
             return
         self._sessions_loaded = True
         last = result.get("last_successful_login_at") if isinstance(result, dict) else None

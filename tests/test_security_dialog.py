@@ -192,6 +192,18 @@ def test_security_formats_iso_timestamps_for_display(qt_application):
     assert "2026-10-13T12:00:00Z" not in dialog.last_login.text()
 
 
+def test_session_load_error_is_logged_but_not_shown_raw(qt_application, caplog):
+    class BrokenSessions:
+        def list_active_sessions(self):
+            raise RuntimeError("internal database detail marker")
+
+    dialog = SecurityDialog(_Controller(BrokenSessions()))
+    dialog.refresh_security()
+    assert dialog.message.text() == dialog.translator.t("security_settings.msg_load_failed")
+    assert "internal database detail marker" not in dialog.message.text()
+    assert "internal database detail marker" in caplog.text
+
+
 def test_password_visibility_actions_toggle_each_field(qt_application):
     dialog = SecurityDialog(_Controller(_Sessions()))
     for field in (dialog.current_password, dialog.new_password, dialog.confirm_password):

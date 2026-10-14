@@ -82,7 +82,8 @@
     "msg_name_saved": "Display name saved",
     "msg_name_error": "Enter a display name",
     "msg_password_mismatch": "New passwords do not match",
-    "msg_password_saved": "Password changed"
+    "msg_password_saved": "Password changed",
+    "msg_load_failed": "Could not load active sessions. Please try again."
   },
 
   "profile_statistics": {
