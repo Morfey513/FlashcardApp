@@ -1010,6 +1010,54 @@ QLineEdit#account_input {
     padding: 4px 12px;
 }
 QLineEdit#account_input:focus { border: 1px solid #2d89ef; }
+QFrame#security_sessions_panel {
+    background: #f7f9fc;
+    border: 1px solid #d7dce4;
+    border-radius: 10px;
+}
+QScrollArea#security_sessions_scroll {
+    background: transparent;
+    border: none;
+}
+QScrollArea#security_sessions_scroll QWidget { background: transparent; }
+QFrame#security_session_card {
+    background: #ffffff;
+    border: 1px solid #dbe1e8;
+    border-radius: 8px;
+}
+QLabel#security_device_icon { font-size: 22px; min-width: 30px; padding: 0px; }
+QLabel#security_device_name { color: #202a36; font-size: 14px; font-weight: 600; padding: 0px; }
+QLabel#security_session_meta { color: #617083; font-size: 11px; padding: 0px; }
+QLabel#security_current_badge {
+    color: #176d36;
+    background: #e8f7ec;
+    border: 1px solid #afe0ba;
+    border-radius: 10px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 0px;
+}
+QPushButton#security_terminate_btn {
+    color: #aa332a;
+    background: #fff4f2;
+    border: 1px solid #e4ada7;
+    border-radius: 6px;
+    padding: 4px 8px;
+    min-width: 0px;
+    min-height: 0px;
+}
+QPushButton#security_terminate_btn:hover { background: #ffe8e4; }
+QPushButton#security_sign_out_others {
+    color: #aa332a;
+    background: transparent;
+    border: 1px solid #e4ada7;
+    border-radius: 7px;
+    padding: 4px 12px;
+    min-width: 0px;
+    min-height: 0px;
+}
+QPushButton#security_sign_out_others:hover { background: #fff4f2; }
 QLabel#profile_summary { color: #2467a3; font-size: 15px; font-weight: 600; padding: 8px; }
 QLabel#profile_section_title { color: #222222; font-size: 17px; font-weight: bold; padding: 8px 0px 2px 0px; }
 QLabel#profile_collection_title { color: #333333; font-size: 14px; font-weight: 600; padding: 4px 0px; }
