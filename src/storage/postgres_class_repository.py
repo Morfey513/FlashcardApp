@@ -54,6 +54,9 @@ class PostgresClassRepository:
                         id=class_id, owner_id=owner_id, name=content.name, status="active"
                     )
                     session.add(classroom)
+                    # Flush the parent before invitation/member queries can
+                    # autoflush a newly added content link.
+                    session.flush()
                 else:
                     classroom.owner_id = owner_id
                     classroom.name = content.name
@@ -173,6 +176,9 @@ class PostgresClassRepository:
                         name=content.name, status="active",
                     )
                     session.add(classroom)
+                    # The link has no ORM relationship to order its INSERT.
+                    # Persist the parent before a query can autoflush the link.
+                    session.flush()
                     session.add(link_model(**{
                         "class_id": class_id, link_field: str(content_id),
                     }))
