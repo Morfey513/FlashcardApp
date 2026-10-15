@@ -218,6 +218,9 @@ class QuizViewer(QWidget):
 
         # Result Panel
         self.done_btn.setText(t.t(f"{sec}.btn_done"))
+        self.menu_retry_save_btn.setText(t.t(f"{sec}.btn_retry_all_saves"))
+        self.result_retry_save_btn.setText(t.t(f"{sec}.btn_retry_save"))
+        self._refresh_pending_notice()
 
         # If currently in a quiz or review, we need to refresh dynamic content
         if self.stack.currentWidget() == self.quiz_panel:
@@ -417,6 +420,19 @@ class QuizViewer(QWidget):
         self.menu_title_label.setObjectName("title")
         layout.addWidget(self.menu_title_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        pending_row = QHBoxLayout()
+        self.menu_pending_label = QLabel()
+        self.menu_pending_label.setObjectName("pending_test_save_notice")
+        self.menu_pending_label.setWordWrap(True)
+        pending_row.addWidget(self.menu_pending_label, 1)
+        self.menu_retry_save_btn = QPushButton()
+        self.menu_retry_save_btn.setObjectName("pending_test_save_retry")
+        self.menu_retry_save_btn.clicked.connect(self.retry_pending_save_from_menu)
+        pending_row.addWidget(self.menu_retry_save_btn)
+        layout.addLayout(pending_row)
+        self.menu_pending_label.hide()
+        self.menu_retry_save_btn.hide()
+
         self.quiz_list = QListWidget()
         self.quiz_list.setObjectName("quiz_learning_list")
         self.refresh_quiz_list()
@@ -580,6 +596,19 @@ class QuizViewer(QWidget):
         scroll.setWidget(self.result_list_widget)
         layout.addWidget(scroll)
 
+        self.result_save_notice = QLabel()
+        self.result_save_notice.setObjectName("result_save_notice")
+        self.result_save_notice.setWordWrap(True)
+        self.result_save_notice.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.result_save_notice)
+        self.result_save_notice.hide()
+
+        self.result_retry_save_btn = QPushButton()
+        self.result_retry_save_btn.setObjectName("result_retry_save")
+        self.result_retry_save_btn.clicked.connect(self.retry_result_save)
+        layout.addWidget(self.result_retry_save_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.result_retry_save_btn.hide()
+
         self.done_btn = QPushButton()
         self.done_btn.setFixedSize(220, 60)
         self.done_btn.clicked.connect(self.return_to_menu)
@@ -688,6 +717,18 @@ class QuizViewer(QWidget):
             f"{score_label}: {score}/{total} ({percent}%)"
             + assessment_result
         )
+        if getattr(self.controller, "final_save_pending", False):
+            if getattr(self.controller, "final_save_durable", True):
+                message = t.t("quiz_view.result_save_pending")
+            else:
+                message = t.t("quiz_view.result_save_disk_failed")
+            self.result_save_notice.setText(message)
+            self.result_save_notice.show()
+            self.result_retry_save_btn.setEnabled(True)
+            self.result_retry_save_btn.show()
+        else:
+            self.result_save_notice.hide()
+            self.result_retry_save_btn.hide()
 
         label_your_answer = t.t("quiz_view.result_your_answer")
         label_correct = t.t("quiz_view.result_correct")
@@ -740,6 +781,48 @@ class QuizViewer(QWidget):
 
         self.result_list_layout.addStretch()
         self.stack.setCurrentWidget(self.result_panel)
+
+    def _refresh_pending_notice(self, message=None):
+        list_pending = getattr(self.controller, "list_pending_test_attempts", None)
+        pending = list_pending() if callable(list_pending) else []
+        if not pending:
+            self.menu_pending_label.hide()
+            self.menu_retry_save_btn.hide()
+            return
+        names = ", ".join(dict.fromkeys(
+            str(row.get("attempt", {}).get("quiz_name") or row.get("quiz_id"))
+            for row in pending
+        ))
+        self.menu_pending_label.setText(message or self.translator.t(
+            "quiz_view.menu_pending_saves", count=len(pending), names=names,
+        ) + (
+            " " + self.translator.t("quiz_view.menu_pending_memory_warning")
+            if any(row.get("in_memory_only") for row in pending) else ""
+        ))
+        self.menu_pending_label.show()
+        self.menu_retry_save_btn.show()
+
+    def retry_pending_save_from_menu(self):
+        retry = getattr(self.controller, "retry_pending_test_attempt", None)
+        list_pending = getattr(self.controller, "list_pending_test_attempts", None)
+        if callable(retry) and callable(list_pending):
+            for record in list_pending():
+                retry(record["attempt_id"], record["quiz_id"])
+        self._refresh_pending_notice()
+
+    def retry_result_save(self):
+        saved = self.controller.retry_final_test_attempt()
+        if saved is None:
+            key = (
+                "quiz_view.result_save_still_pending"
+                if getattr(self.controller, "final_save_durable", True)
+                else "quiz_view.result_save_disk_failed"
+            )
+            self.result_save_notice.setText(self.translator.t(key))
+            return
+        self.result_save_notice.setText(self.translator.t("quiz_view.result_save_success"))
+        self.result_retry_save_btn.hide()
+        self._refresh_pending_notice()
 
     def toggle_question_mastery(self, question_id):
         self.controller.toggle_question_mastery(question_id)
@@ -871,6 +954,7 @@ class QuizViewer(QWidget):
         self.countdown_timer.stop()
         self.test_timer_label.hide()
         self.refresh_quiz_list()
+        self._refresh_pending_notice()
         self.stack.setCurrentWidget(self.menu_panel)
 
     def _abandon_session_once(self):

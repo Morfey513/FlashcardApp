@@ -127,6 +127,7 @@ class _HttpContentRepositoryBase:
 class HttpQuizRepository(_HttpContentRepositoryBase):
     kind = "quiz"
     filename = "quiz.json"
+    persists_test_attempts_remotely = True
 
     def get_all_quizzes(self):
         return [self._entry(item) for item in self._metadata_rows()]

@@ -12,7 +12,7 @@ not deadlines.
 | P0 / maintenance | Backup/restore drill; manual pg_dump/pg_restore docs exist, no drill evidence. | Disposable restore target/policy. Demonstrate restore plus API/content/user checks; dumps outside Git. | Blocks production-data release. |
 | P1 / feature | Security page; no implementation found, requirements open. | Owner defines account/session, cache privacy, or admin scope. User stories, roles, UI actions, tests precede implementation. | Defer unless policy requires it. |
 | P1 / feature | Online editor/class acceptance; implementation exists, real workflow evidence incomplete. | Disposable API/PG. Teacher/admin/student create/edit/publish/assign/invite/remove access correctly. | Important online release. |
-| P1 / feature | Offline update policy; explicit refresh exists, automatic sync does not. | Product freshness/conflict decision. UI and tests cover update availability/account transitions/selected policy. | Defer if explicit refresh accepted. |
+| ~~P1 / feature~~ **Done** | Offline update policy — **closed 2026-10-14**: explicit-refresh-only confirmed as sufficient; freshness/guest/account-switch decisions recorded; one implementation gap (silent save loss on connectivity failure during authenticated Test Mode) found and fixed with explicit retry plus durable local pending-file and in-memory fallback, test-covered. | UI and tests now cover update availability, account transitions, and the selected policy, as required. | Resolved. |
 
 ## Phase 2 — Make it clean/right
 

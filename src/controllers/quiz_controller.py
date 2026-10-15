@@ -1,6 +1,7 @@
 # src/controllers/quiz_controller.py
 
 import logging
+import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from src.logic.question_types import MATCH_ANSWER_KEY, MATCH_PROMPT_KEY
@@ -12,6 +13,7 @@ from src.storage.repository_factory import (
     create_class_repository, create_moderation_repository, create_quiz_repository,
 )
 from src.storage.downloaded_content_service import DownloadedContentService
+from src.storage.pending_quiz_attempt_store import PendingQuizAttemptStore
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 class QuizController:
     def __init__(
         self, user_id="guest", repo=None, role="student",
-        user_repository=None, class_repository=None,
+        user_repository=None, class_repository=None, pending_attempt_store=None,
     ):
         self.translator = get_translator()
         self.user_repository = user_repository
@@ -42,6 +44,11 @@ class QuizController:
         self.remote_assessment = False
         self.remote_position_by_question = {}
         self.remote_submit_failed = False
+        self.final_save_pending = False
+        self.final_save_durable = True
+        self._final_pending_attempt_id = None
+        self._volatile_pending_attempts = {}
+        self.pending_attempt_store = pending_attempt_store or PendingQuizAttemptStore()
         self._policy_cache = {}
         self._prepared_quiz_start = None
         self.downloaded_content = None
@@ -195,6 +202,9 @@ class QuizController:
         self.remote_position_by_question = {}
         self.saved_test_attempt = None
         self.active_test_attempt = None
+        self.final_save_pending = False
+        self.final_save_durable = True
+        self._final_pending_attempt_id = None
         prepared = self._prepared_quiz_start if mode == "practice" else None
         self._prepared_quiz_start = None
         if prepared and prepared["name"] == name:
@@ -485,6 +495,8 @@ class QuizController:
             return None
         if self.saved_test_attempt is not None:
             return self.saved_test_attempt
+        if self.final_save_pending:
+            return None
         if self.remote_assessment and self.active_test_attempt:
             result = self.repo.submit_assessment(self.current_quiz_info.get("id"), self.active_test_attempt.get("id"))
             if result:
@@ -525,15 +537,87 @@ class QuizController:
             "counts_toward_limit": True,
             "answers": stats["results"],
         }
+        owed_to_api = self.user_id != "guest" and bool(
+            getattr(self.repo, "persists_test_attempts_remotely", False)
+        )
+        operation = "update" if self.active_test_attempt else "save"
+        if owed_to_api:
+            attempt["id"] = (
+                self.active_test_attempt["id"] if self.active_test_attempt
+                else str(uuid.uuid4())
+            )
         if self.active_test_attempt:
             self.saved_test_attempt = self.repo.update_test_attempt(
                 self.current_quiz_path, self.active_test_attempt["id"], attempt
             )
         else:
             self.saved_test_attempt = self.repo.save_test_attempt(self.current_quiz_path, attempt)
+        if self.saved_test_attempt is None and owed_to_api:
+            self.final_save_pending = True
+            self._final_pending_attempt_id = attempt["id"]
+            try:
+                self.pending_attempt_store.save(self.current_quiz_path, attempt, operation)
+            except (OSError, TypeError, ValueError):
+                self.final_save_durable = False
+                key = (str(self.user_id), str(attempt["quiz_id"]), str(attempt["id"]))
+                self._volatile_pending_attempts[key] = {
+                    "user_id": key[0], "quiz_id": key[1], "attempt_id": key[2],
+                    "quiz_path": self.current_quiz_path, "operation": operation,
+                    "attempt": dict(attempt), "in_memory_only": True,
+                }
+                logger.exception("Could not preserve an unsaved Test Mode result locally")
         self.active_test_attempt = None
         self.invalidate_policy_cache()
         return self.saved_test_attempt
+
+    def list_pending_test_attempts(self):
+        """Return this user's API results awaiting an explicit retry."""
+        if self.user_id == "guest" or not getattr(self.repo, "persists_test_attempts_remotely", False):
+            return []
+        records = self.pending_attempt_store.list_for_user(self.user_id)
+        return records + list(self._volatile_pending_attempts.values())
+
+    def retry_pending_test_attempt(self, attempt_id=None, quiz_id=None):
+        """Retry one saved file, or its in-memory fallback when the file write failed."""
+        records = self.list_pending_test_attempts()
+        record = next(
+            (
+                row for row in records
+                if (attempt_id is None or row.get("attempt_id") == str(attempt_id))
+                and (quiz_id is None or row.get("quiz_id") == str(quiz_id))
+            ),
+            None,
+        )
+        if record is None:
+            return None
+        attempt = record["attempt"]
+        quiz_path = record["quiz_path"]
+        if record["operation"] == "update":
+            saved = self.repo.update_test_attempt(quiz_path, record["attempt_id"], attempt)
+        else:
+            saved = self.repo.save_test_attempt(quiz_path, attempt)
+        if saved is None:
+            return None
+        key = (str(self.user_id), record["quiz_id"], record["attempt_id"])
+        if record.get("in_memory_only"):
+            self._volatile_pending_attempts.pop(key, None)
+        else:
+            self.pending_attempt_store.delete(*key)
+        self.saved_test_attempt = saved
+        if self._final_pending_attempt_id == record["attempt_id"]:
+            self.final_save_pending = False
+            self._final_pending_attempt_id = None
+            self.final_save_durable = True
+        self.invalidate_policy_cache()
+        return saved
+
+    def retry_final_test_attempt(self):
+        """Retry the result currently shown in the result panel."""
+        if not self.final_save_pending or not self._final_pending_attempt_id:
+            return None
+        return self.retry_pending_test_attempt(
+            self._final_pending_attempt_id, self.current_quiz_info.get("id")
+        )
 
     def abandon_test_attempt(self):
         """Checkpoint and mark an unfinished Test Mode session as abandoned."""

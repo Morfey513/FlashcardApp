@@ -89,7 +89,7 @@ here.
 | Assessments | Implemented with substantial coverage | Server-authoritative and race tests/Phase 7 reports exist; run gated outage test on final test DB. |
 | Editors/content lifecycle | Implemented but insufficiently tested online | Test owner/admin/student flows against disposable API server. |
 | Offline Library/media | Implemented foundation; hardening deferred | Native-crash investigation, worker/disk/multi-instance/full-package questions remain. |
-| Teacher updates | Explicit refresh implemented | Decide whether automatic synchronization is required. |
+| Teacher updates / offline update policy | **Implemented and verified** | Explicit refresh only (no background sync), decided 2026-10-14. Freshness required for Test Mode, not Practice; guest Test Mode exempt (locally graded, no server round-trip, confirmed in code). Account-switch/logout cache-locking policy confirmed implemented (`can_access`, revocation vs. stale distinction). Non-class-only authenticated Test Mode save failures are handled via an explicit, student-visible retry with a durable local pending file and an in-memory fallback — `src/storage/pending_quiz_attempt_store.py`, `tests/test_pending_test_attempt_retry.py`. No automatic/background sync exists or is planned. |
 | First-run DB setup | Planned/not found automated | Manual database, .env, Alembic instructions exist; define operator workflow. |
 | Baseline data seeding | Open | Old import tools removed; database docs still mention stale imports. Decide supported fresh-server data source. |
 | Backup/restore | Manual procedure documented | pg_dump/pg_restore exist; no restore drill evidenced. |
@@ -106,7 +106,7 @@ after deciding:
 1. Security page purpose: account/session, cache privacy, or administration?
 2. Who provisions a server and what baseline/demo data, if any, it receives?
 3. Is backup/restore manual or a release requirement with restore drills?
-4. Is explicit refresh enough, or is automatic sync required?
+4. ~~Is explicit refresh enough, or is automatic sync required?~~ **Decided 2026-10-14: explicit refresh only.** See Feature inventory above.
 5. Is deployment local-only, LAN, or Internet? LAN/Internet needs separate
    HTTPS, secret, CORS/host, and firewall configuration.
 
