@@ -257,6 +257,30 @@ pg_restore -h <target-host> -p 5432 -U study_buddy -d study_buddy `
   --exit-on-error <outside-repository>\study_buddy.dump
 ```
 
+### Backup/restore drill
+
+Run the automated drill only with the disposable bootstrap credentials already
+used by `tools\bootstrap_server.py`. It creates two new uniquely named scratch
+databases, migrates and seeds the source, registers a test account, executes
+the `pg_dump` and `pg_restore` commands above with their documented flags, and
+verifies the restored demo IDs, content versions, complete question and card
+bodies, and account authentication. It also checks the restored API's `/health`,
+`/ready`, authenticated login, and demo metadata and body endpoints. It removes
+both scratch databases, roles, and its OS-temporary dump file even when the
+drill fails.
+
+```powershell
+.\.venv\Scripts\python.exe tools\backup_restore_drill.py
+```
+
+The drill requires `STUDY_BUDDY_TEST_DATABASE_URL` and
+`STUDY_BUDDY_BOOTSTRAP_ADMIN_URL`, plus `pg_dump` and `pg_restore` on `PATH`.
+It never reads, dumps, or restores `study_buddy` or `study_buddy_test`; those
+environment credentials are only a template for fresh `study_buddy_backup_*`
+scratch databases. PostgreSQL passwords are passed to child tools only through
+their `PGPASSWORD` process environment. Last confirmed passing run: 2026-10-13
+from a workspace based on commit `28cfac3` (with the drill changes under test).
+
 ## Run the local API manually
 
 The bootstrap command starts and verifies the API automatically. For manual

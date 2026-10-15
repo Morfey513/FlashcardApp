@@ -121,6 +121,13 @@ def _password_verifier(connection, password: str, role: str) -> str:
 
 def provision_disposable_database(admin_url: str, database_url: str) -> None:
     """Create the application role/database once, refusing ownership conflicts."""
+    _provision_disposable_database(admin_url, database_url, TEST_DATABASE_NAME)
+
+
+def _provision_disposable_database(admin_url: str, database_url: str, database_name: str) -> None:
+    """Provision a caller-selected disposable database without changing bootstrap policy."""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", database_name):
+        raise ValueError("bootstrap database name contains unsupported characters")
     target = make_url(database_url)
     role = str(target.username or "")
     password = target.password
@@ -145,17 +152,17 @@ def provision_disposable_database(admin_url: str, database_url: str) -> None:
                 raise RuntimeError("existing bootstrap application role cannot log in")
             owner = connection.exec_driver_sql(
                 "SELECT r.rolname FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba WHERE d.datname = %s",
-                (TEST_DATABASE_NAME,),
+                (database_name,),
             ).scalar_one_or_none()
             if owner is None:
-                connection.exec_driver_sql(f"CREATE DATABASE {TEST_DATABASE_NAME} OWNER {quoted_role}")
+                connection.exec_driver_sql(f"CREATE DATABASE {database_name} OWNER {quoted_role}")
             elif owner != role:
-                raise RuntimeError("existing study_buddy_test database is owned by a different role")
+                raise RuntimeError(f"existing {database_name} database is owned by a different role")
     except RuntimeError:
         raise
     except Exception as exc:
         raise RuntimeError(
-            "Could not provision study_buddy_test. Verify the bootstrap administrator has role and database creation privileges."
+            f"Could not provision {database_name}. Verify the bootstrap administrator has role and database creation privileges."
         ) from exc
     finally:
         engine.dispose()
