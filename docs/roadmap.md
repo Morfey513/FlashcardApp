@@ -1,18 +1,19 @@
 # Roadmap: Work -> Clean/Right -> Fast
 
-Status recorded 2026-10-10. Priorities express dependencies and release risk,
-not deadlines.
+Status updated 2026-10-14. Priorities express dependencies and release risk,
+not deadlines. Phase 1 closure applies to the agreed local/staging scope;
+Internet-facing deployment hardening remains in Phase 2.
 
 ## Phase 1 — Make it work
 
 | Priority / category | Item, status, evidence | Dependencies and acceptance | Release impact |
 | --- | --- | --- | --- |
-| P0 / maintenance | New-device/server bootstrap; only manual DB/.env/Alembic instructions found. | Decide operator/deployment. New device safely configures DB, upgrades schema, starts API, proves health/readiness without secret leakage. | Blocks supported server release. |
-| P0 / maintenance | Baseline/demo-data seeding after retired JSON imports; open. | Decide canonical source. Document an idempotent supported process or explicitly provide no seed data. | Blocks reproducible fresh setup if content is required. |
-| P0 / maintenance | Backup/restore drill; manual pg_dump/pg_restore docs exist, no drill evidence. | Disposable restore target/policy. Demonstrate restore plus API/content/user checks; dumps outside Git. | Blocks production-data release. |
-| P1 / feature | Security page; no implementation found, requirements open. | Owner defines account/session, cache privacy, or admin scope. User stories, roles, UI actions, tests precede implementation. | Defer unless policy requires it. |
-| P1 / feature | Online editor/class acceptance; implementation exists, real workflow evidence incomplete. | Disposable API/PG. Teacher/admin/student create/edit/publish/assign/invite/remove access correctly. | Important online release. |
-| ~~P1 / feature~~ **Done** | Offline update policy — **closed 2026-10-14**: explicit-refresh-only confirmed as sufficient; freshness/guest/account-switch decisions recorded; one implementation gap (silent save loss on connectivity failure during authenticated Test Mode) found and fixed with explicit retry plus durable local pending-file and in-memory fallback, test-covered. | UI and tests now cover update availability, account transitions, and the selected policy, as required. | Resolved. |
+| **Done / P0 maintenance** | New-device/server bootstrap — closed 2026-10-14. [Script](../tools/bootstrap_server.py) provisions only `study_buddy_test`, migrates, starts the API, and checks health/readiness; [tests](../tests/test_bootstrap_server.py) cover fresh setup, rerun, and unreachable DB. | Local/staging bootstrap with pre-set disposable credentials. | Phase 1 gate resolved; Internet exposure remains Phase 2. |
+| **Done / P0 maintenance** | Baseline/demo-data seeding — closed 2026-10-14. The [bootstrap seeder](../tools/bootstrap_server.py) loads the bundled quiz and deck without retired import tooling; [live rerun test](../tests/test_bootstrap_server.py) checks one copy and stable versions. | Bundled demo content is the selected baseline; conflicting content is refused. | Reproducible disposable setup verified. |
+| **Done / P0 maintenance** | Backup/restore drill — closed 2026-10-14. [Drill](../tools/backup_restore_drill.py) and [tests](../tests/test_backup_restore_drill.py) verify separate scratch source/target, documented flags, restored API/content/user, repeat runs, and cleanup. [Exact run record](database.md#backuprestore-drill). | Manual `pg_dump`/`pg_restore` procedure remains supported; dump stays outside Git. | Phase 1 drill gate resolved; production operations remain separate. |
+| **Done / P1 feature** | Security page — closed 2026-10-14 for password change and active sessions. [UI](../src/ui/security_dialog.py), [API](../src/api/main.py), [UI tests](../tests/test_security_dialog.py), and [API tests](../tests/test_security_sessions_api.py). | Agreed Sections 1–2; sign-in history and 2FA were outside scope. | Agreed page scope verified. |
+| **Done / P1 feature** | Online editor/class acceptance — closed 2026-10-14. [Live acceptance test](../tests/test_editor_class_acceptance.py) covers quiz and deck create/edit/publish/assign/invite/access/remove plus role denials on disposable PostgreSQL. | A narrow class-link INSERT ordering fix is in [repository](../src/storage/postgres_class_repository.py). | Online workflow verified. |
+| **Done / P1 feature** | Offline update policy — closed 2026-10-14: explicit refresh only, Test Mode freshness, guest/local grading, and account cache locking. Authenticated save failure has explicit retry with file and memory fallback in [controller](../src/controllers/quiz_controller.py), [store](../src/storage/pending_quiz_attempt_store.py), and [tests](../tests/test_pending_test_attempt_retry.py). | [Refresh tests](../tests/test_downloaded_content_service.py) and retry tests cover the selected policy; no background sync. | Policy and identified save-loss gap resolved. |
 
 ## Phase 2 — Make it clean/right
 

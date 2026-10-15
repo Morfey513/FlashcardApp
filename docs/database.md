@@ -278,8 +278,22 @@ The drill requires `STUDY_BUDDY_TEST_DATABASE_URL` and
 It never reads, dumps, or restores `study_buddy` or `study_buddy_test`; those
 environment credentials are only a template for fresh `study_buddy_backup_*`
 scratch databases. PostgreSQL passwords are passed to child tools only through
-their `PGPASSWORD` process environment. Last confirmed passing run: 2026-10-13
-from a workspace based on commit `28cfac3` (with the drill changes under test).
+their `PGPASSWORD` process environment.
+
+Last confirmed passing run: **2026-10-14**, source revision
+`6cf2f9d2f1ad06530e3f487f55036c923461f25b`, Python **3.13.1**. From the
+repository root, with the disposable URLs in the local ignored `.env`:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from dotenv import load_dotenv; load_dotenv(); import pytest; raise SystemExit(pytest.main(['-q', 'tests/test_backup_restore_drill.py']))"
+```
+
+Result: **10 passed, 0 failed, 0 skipped**, 3 non-failing Alembic warnings;
+coverage was not collected. The configured `study_buddy_test` URL supplied
+credentials only; the live tests dumped and restored distinct, newly created
+`study_buddy_backup_<random>` databases and used the `postgres` maintenance
+database for provisioning and cleanup. No non-disposable database was a dump
+source or restore target.
 
 ## Run the local API manually
 
