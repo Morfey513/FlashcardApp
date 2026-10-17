@@ -67,6 +67,12 @@ def test_true_false_ui_returns_boolean_value():
         def get_quiz_summaries(self):
             return []
 
+        def get_test_policy(self, _name):
+            return None
+
+        def can_start_test(self, _name):
+            return False
+
         def get_current_card_type(self):
             return "true_false"
 
