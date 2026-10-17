@@ -1,6 +1,7 @@
 """Browser-style middle-click auto-scroll for scrollable PyQt content."""
 
 from PyQt6.QtCore import QEvent, QTimer, Qt
+from PyQt6 import sip
 from PyQt6.QtWidgets import QScrollArea, QTextBrowser, QWidget
 
 
@@ -17,9 +18,15 @@ class _AutoScrollSupport:
 
     def track_auto_scroll_content(self, content: QWidget):
         """Track a content widget and its rows/buttons after each re-render."""
+        # A re-render can leave Python wrappers for deleted Qt widgets.
+        # Check them before calling native widget methods.
+        if sip.isdeleted(content):
+            return
         content.setMouseTracking(True)
         content.installEventFilter(self)
         for child in content.findChildren(QWidget):
+            if sip.isdeleted(child):
+                continue
             child.setMouseTracking(True)
             child.installEventFilter(self)
 
