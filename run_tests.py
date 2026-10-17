@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from subprocess import run
 import sys
+from uuid import uuid4
 
 from src.config import TEST_LOG_FILE
 
@@ -11,6 +12,9 @@ from src.config import TEST_LOG_FILE
 def main():
     project_root = Path(__file__).resolve().parent
     test_output_root = project_root / ".temp"
+    # A prior native Qt crash can leave pytest's fixed basetemp locked on
+    # Windows. Give each run a fresh directory so the next run can start.
+    pytest_temp = test_output_root / f"pytest-{uuid4().hex}"
     test_result = run(
         [
             sys.executable,
@@ -18,7 +22,8 @@ def main():
             "pytest",
             str(project_root / "tests"),
             "-q",
-            f"--basetemp={test_output_root / 'pytest'}",
+            f"--basetemp={pytest_temp}",
+            f"-o=cache_dir={pytest_temp / 'cache'}",
             "--cov=src",
             f"--cov-config={project_root / '.coveragerc'}",
             "--cov-report=term-missing",
@@ -31,6 +36,13 @@ def main():
         check=False,
     )
     output = test_result.stdout + test_result.stderr
+    if test_result.returncode != 0:
+        status = f"0x{test_result.returncode & 0xFFFFFFFF:08X}"
+        output += (
+            f"\nPytest exited with code {test_result.returncode} ({status}). "
+            "Coverage gates did not run; any HTML/XML report from this run "
+            "may be incomplete.\n"
+        )
     controller_result = None
     quiz_controller_result = None
     utility_result = None
