@@ -1,18 +1,19 @@
 # Testing
 
-The project currently collects **205 pytest cases** and reports **52.7% branch
-coverage** across the complete `src` tree. The final Phase 4 validation run
-passed all 205 tests with no skips. Seven tests are parameterized
-quiz-grading cases, and the role-based launcher test covers four roles through
-parameters. The permission matrix also covers four roles through parameters,
-so the total represents cases rather than 158
-unrelated test functions.
+The 2026-10-17 full-suite run reported **506 passed, 0 failed, 0 skipped** at
+revision `a2fe5f6ba761aa738429e57391f5da51c9066815` with Python 3.13.1
+and pytest 9.1.1. `run_tests.py` reported **71.4% total coverage**; see the
+exact commands and runner gates in [project_status.md](project_status.md#running-and-testing).
+The earlier Phase 4 baseline was 205 passed with 52.7% branch coverage; that
+historical count is not the current suite size.
 
 The suite focuses primarily on core business logic and the JSON/PostgreSQL/API persistence layers,
 with a deliberately small behavioral safety net around important PyQt flows.
 Pixel-level rendering and most layout behavior remain manual checks.
 
 ## Running the suite
+
+Run these commands from a normal user shell; restricted or sandboxed tool shells can redirect `TEMP` and block loopback PostgreSQL, producing spurious errors.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt

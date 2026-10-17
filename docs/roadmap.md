@@ -1,6 +1,6 @@
 # Roadmap: Work -> Clean/Right -> Fast
 
-Status updated 2026-10-14. Priorities express dependencies and release risk,
+Status updated 2026-10-17. Priorities express dependencies and release risk,
 not deadlines. Phase 1 closure applies to the agreed local/staging scope;
 Internet-facing deployment hardening remains in Phase 2.
 
@@ -23,9 +23,9 @@ Internet-facing deployment hardening remains in Phase 2.
 | P0 / correctness | PostgreSQL outage/recovery gate is deliberately conditional; current result unverified. | study_buddy_test plus fault injection. No unintended skip; bounded 503 then recovery; no normal DB touched. | Blocks online-fault confidence. |
 | P1 / security | Negative API boundaries: malformed/empty/oversized input, ownership, SQL injection, session revocation. | Contract inventory. Representative safe tests for every public read/write boundary. | Needed before broad exposure. |
 | P1 / correctness | Assessment integrity regression. | PostgreSQL test environment. Server grading, redaction, snapshot/resume, attempt lifecycle, terminal races proven. | High assessment importance. |
-| P1 / correctness | Offline-cache hardening/native crash closure. | Reproduction/policy. Tests for account/logout, malformed/media/path traversal, interrupted replacement, disk/size, updates; crash fixed or closed with evidence. | Blocks robust offline-media claim. |
+| P1 / correctness | Offline-cache hardening/native crash closure. **Verified:** the reproduced test crash came from an unhandled Qt-slot `AttributeError`: [quiz_view.py:1150](../src/ui/quiz_view.py#L1150) called the missing method on the [test stub](../tests/test_quiz_view.py#L63). The stub is fixed and the [test hook](../tests/conftest.py#L24) exposes callback failures. **Historical:** two matching WER stacks (one under page heap) and the diagnostic 505-pass/1-error run; the PyQt6 `qFatal()` link is inferred from the dump stack, and earlier auto-scroll/heap-corruption root-cause claims are retracted. [Evidence and remaining questions](project_status.md#phase-2-native-crash-and-runner-evidence). | **Open:** remaining cache hardening (account/logout, malformed media/path traversal, interrupted replacement, disk/size, updates) and why isolated runs did not reproduce the exception. | Native-crash cause closed; robust offline-media claim remains gated by cache hardening. |
 | P1 / maintenance | Reconcile README/database/testing drift. | Bootstrap/seeding decision. One current source for modes/tests/migration/backup/baseline. | Operations reliability. |
-| P2 / maintenance | Windows runner/GUI regression portability. | Supported CI/runner model. Repeatable unique-temp tests and documented GUI prerequisites. | Deferrable. |
+| P2 / maintenance | Windows runner/GUI regression portability. **Verified:** the [test callback hook](../tests/conftest.py#L20) makes escaped Qt exceptions report as pytest errors, the [desktop hook](../src/main.py#L18) is committed and covered by [its test](../tests/test_main_exception_hook.py#L7), and the new-HEAD 506-pass runs are saved in `logs/pytest_run.txt:1-18` and `logs/test_results.log:369-478`. **Historical:** restricted-shell TEMP/loopback failures; [details](project_status.md#phase-2-native-crash-and-runner-evidence). | **Open:** supported CI/runner model, unique-temp portability and documented GUI prerequisites. Committed [runner crash logging](../run_tests.py#L39) is defensive, not the root-cause fix. | Deferrable; the reproduced native crash no longer blocks the verified normal-shell suite. |
 | P2 / correctness | Trace suspected redundant calls before removing them. | Request capture. Separate required authorization from duplicate work and regression-test only measured changes. | Not a confirmed defect. |
 
 ## Phase 3 — Make it fast

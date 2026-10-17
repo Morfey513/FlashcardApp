@@ -1,6 +1,6 @@
 # Project status
 
-Status updated 2026-10-14. The original 2026-10-10 recovery snapshot is
+Status updated 2026-10-17. The original 2026-10-10 recovery snapshot is
 retained below as historical context; the Phase 1 inventory and verification
 record reflect the current local/staging implementation.
 
@@ -74,6 +74,8 @@ PostgreSQL-gated tests require disposable study_buddy_test.
 | Revision `6cf2f9d2f1ad06530e3f487f55036c923461f25b`, 2026-10-14 | `.\.venv\Scripts\python.exe -m pytest -q tests`: 502 passed, 0 failed, 0 skipped; Python 3.13.1; disposable PostgreSQL/temporary SQLite targets where applicable; coverage not collected | Verified |
 | Same revision, disposable PostgreSQL, 2026-10-14 | Exact targeted command below: 26 passed, 0 failed, 0 skipped; Python 3.13.1; `study_buddy_test` plus unique `study_buddy_backup_*` and editor scratch databases; coverage not collected | Verified |
 | Same revision, backup drill alone, 2026-10-14 | Exact command, Python, database targets, and 10 passed / 0 failed / 0 skipped recorded in [database.md](database.md#backuprestore-drill) | Verified |
+| HEAD `a2fe5f6ba761aa738429e57391f5da51c9066815`, 2026-10-17 | `.\.venv\Scripts\python.exe -m pytest -q tests`: 506 passed, 0 failed, 0 skipped, 10 warnings in 200.35s; Python 3.13.1, pytest 9.1.1. Database targets: disposable PostgreSQL `study_buddy_test` plus unique `study_buddy_bootstrap_*` and `study_buddy_backup_*` scratch databases; temporary SQLite where applicable. The `postgres` maintenance database is used for scratch provisioning. This command does not collect coverage; local ignored `logs/pytest_run.txt:1-18` records output. | Verified from saved console output and configured disposable URLs |
+| Same HEAD, 2026-10-17 | `.\.venv\Scripts\python.exe run_tests.py`: 506 passed, 0 failed, 0 skipped, 10 warnings in 244.04s; 71.4% total coverage; controller/quiz-controller/utility gates 88.2% / 85.2% / 96.0%. Database targets: disposable PostgreSQL `study_buddy_test` plus unique `study_buddy_bootstrap_*` and `study_buddy_backup_*` scratch databases; temporary SQLite where applicable. The `postgres` maintenance database is used for scratch provisioning. Local ignored `logs/test_results.log:369-478` records output. | Verified from saved runner log and configured disposable URLs |
 
 The targeted live command loaded only the disposable credentials from the
 ignored local `.env`:
@@ -90,11 +92,51 @@ Older documents contain successive counts (158, 205, 221, 326); they are not
 a current dashboard. Release/soak gates must record exact revision, command,
 Python, database target, pass/fail/skip, and coverage.
 
-Historical limitations: Windows pytest temporary-directory permissions required
-a unique base temp in a focused run; a PyQt offscreen/native run recorded an
-access violation in src/ui/auto_scroll.py; Alembic warnings were non-blocking;
-the PostgreSQL outage/recovery test is deliberately gated and not reverified
-here.
+Historical limitations: a restricted tool shell redirected TEMP and blocked
+loopback PostgreSQL, causing hundreds of spurious suite errors; use a normal
+user shell ([testing.md](testing.md#running-the-suite)). The earlier claim
+that `src/ui/auto_scroll.py` caused the native crash is retracted; see the
+root-cause record below. The PostgreSQL outage/recovery test remains gated and
+was not reverified here.
+
+## Phase 2 native crash and runner evidence
+
+- **Verified — root cause:** [quiz_view.py:1145-1151](../src/ui/quiz_view.py#L1145)
+  calls `controller.get_test_policy(selected_name)` from the Qt selection
+  callback. The `ControllerStub` used by
+  `test_true_false_ui_returns_boolean_value` lacked that method; it now matches
+  the real controller's no-policy `None` return and false start decision
+  ([test_quiz_view.py:60-84](../tests/test_quiz_view.py#L60),
+  [quiz_controller.py:116-123](../src/controllers/quiz_controller.py#L116)).
+  The link from the default `sys.excepthook` to a PyQt6 `qFatal()` termination
+  is inferred from the WER dump stack and `0xC0000409` /
+  `FAST_FAIL_FATAL_APP_EXIT`, not from an instrumented PyQt call. The committed
+  [conftest.py:15-33](../tests/conftest.py#L15) hook turns such escaped callback
+  exceptions into named pytest errors.
+- **Historical — diagnostic evidence:** two WER dumps had matching faulting
+  stacks, including one captured with page heap enabled. With the test hook
+  installed before the stub fix, the escaped `AttributeError` occurred at test
+  447; the full run reported 505 passed and 1 error:
+  `test_true_false_ui_returns_boolean_value`, with the missing
+  `get_test_policy` `AttributeError`. The dumps and diagnostic console output
+  are no longer available in this repository; those observations are retained
+  from the investigation, not rechecked for this update.
+- **Historical — retracted:** earlier "native crash fixed" claims attached to
+  the committed [auto_scroll.py:19-31](../src/ui/auto_scroll.py#L19)
+  `sip.isdeleted()` guard and the committed
+  [conftest.py:36-68](../tests/conftest.py#L36) QApplication consolidation
+  did not identify this crash's cause. Heap-corruption theories and both page
+  heap suite runs were inconclusive and are superseded by the callback error.
+  The committed [run_tests.py:39-45](../run_tests.py#L39) native-exit
+  detection is defensive logging, not the fix.
+- **Verified — app hook:** commit `d5bb161` installs
+  [main.py:18-39](../src/main.py#L18) after logging setup
+  ([main.py:76-79](../src/main.py#L76)). The committed
+  [unit test](../tests/test_main_exception_hook.py#L7) checks traceback logging
+  and a non-fatal message; the reported 506-pass suite includes that test.
+- **Open:** why isolated bisection runs did not raise the callback exception.
+  Windows runner/GUI regression portability and the remaining offline-cache
+  hardening cases are still open in [roadmap.md](roadmap.md#phase-2--make-it-cleanright).
 
 ## Feature and operational inventory
 
