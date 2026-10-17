@@ -1,7 +1,7 @@
 # src/main.py
 
 import sys
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import QTranslator, QLibraryInfo
 import logging
 
@@ -12,6 +12,31 @@ from src.utils.logger_setup import setup_logging
 
 logger = logging.getLogger(__name__)
 _qt_translator: QTranslator | None = None
+_showing_unhandled_error = False
+
+
+def handle_unhandled_exception(exc_type, exc, tb):
+    """Keep an exception from a Qt callback visible without aborting the app."""
+    global _showing_unhandled_error
+    logger.error("Unhandled exception in Qt callback", exc_info=(exc_type, exc, tb))
+    app = QApplication.instance()
+    if app is None or _showing_unhandled_error:
+        return
+    _showing_unhandled_error = True
+    try:
+        QMessageBox.warning(
+            app.activeWindow(),
+            "Unexpected error",
+            "An unexpected error occurred. Details were saved to the application log.",
+        )
+    except Exception:
+        logger.exception("Could not display the unexpected-error message")
+    finally:
+        _showing_unhandled_error = False
+
+
+def install_exception_hook():
+    sys.excepthook = handle_unhandled_exception
 
 
 def load_qt_translations(app: QApplication, lang_code: str) -> bool:
@@ -50,6 +75,7 @@ def load_stylesheet(path):
 
 def main():
     setup_logging()
+    install_exception_hook()
     ensure_directories()
 
     app = QApplication(sys.argv)
